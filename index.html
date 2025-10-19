@@ -79,6 +79,10 @@
       padding: 0;
     }
 
+    .card--last {
+      margin-bottom: 60px;
+    }
+
     .card-header,
     .card-body {
       padding: 20px 24px;
@@ -638,7 +642,7 @@
         <div id="root" class="day" aria-live="polite"></div>
       </section>
 
-      <section class="card card--flush" id="configSection">
+      <section class="card card--flush card--last" id="configSection">
         <div class="card-header">
           <h2 class="section-title">Настройки справочников</h2>
           <p class="muted" style="margin-top:6px">Управляйте структурой экспортных листов, а также записями StartData, Vehicles и Depot.</p>
@@ -850,6 +854,7 @@
           { key: 'shipment_size.weight_kg', label: 'Вес (брутто), кг', width: 14, description: 'Вес заказа, если требуется.', getValue: (row) => row.weight ?? '' },
           { key: 'shipment_size.units', label: 'Кол-во мест', width: 16, description: 'Количество мест, паллет или коробов.', getValue: (row) => row.units ?? '' },
           { key: 'shipment_size.volume_cbm', label: 'Объем, м³', width: 12, description: 'Объем поставки в кубометрах.', getValue: (row) => row.volume ?? '' },
+          { key: 'type', label: 'Тип', width: 14, description: 'Тип точки (например garage).', getValue: (row) => row.type || '' },
           { key: 'depot_id', label: 'Наличие на складах', width: 18, description: 'ID склада, откуда отгружается заказ.', getValue: (row) => row.depot_id || '' }
         ]
       },
@@ -1542,11 +1547,12 @@
           title: entry.title || entry.ref || entry.id || `Старт #${index + 1}`,
           address: entry.address || '',
           time_window: entry.time_window || DEFAULT_TIME_WINDOW,
-          comments: entry.comments || entry.type || '',
+          comments: entry.comments || '',
           hard_window: true,
           shared_service_duration_s: '',
           service_duration_s: '',
-          depot_id: entry.depot_id || ''
+          depot_id: entry.depot_id || '',
+          type: entry.type || ''
         });
       });
       for (const day of DAY_KEYS) {
@@ -1568,7 +1574,8 @@
             hard_window: true,
             shared_service_duration_s: seconds,
             service_duration_s: seconds,
-            depot_id: record.depot_id || ''
+            depot_id: record.depot_id || '',
+            type: record.type || ''
           });
         });
       }
