@@ -834,6 +834,10 @@
       { key: 'allow_different_depots_in_route', label: 'Разрешить заезды на склады для дозагрузки' },
       { key: 'depots_only_at_run_beginning', label: 'Заезжать сначала только на склады' }
     ];
+    const PRIORITY_DEPOT_ID = '1112';
+    const PRIORITY_START_LOCATION_ID = '1111';
+    const DEFAULT_START_LOCATION_ID = '1110';
+    const DEFAULT_EXTRA_START_ID = '1114';
     const DEFAULT_TIME_WINDOW = '10:00-21:00';
 
     const EXPORT_SCHEMAS = {
@@ -1203,6 +1207,120 @@
       };
     }
 
+    function normalizeStartId(value) {
+      if (value == null) return '';
+      try {
+        return String(value).trim();
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function ensureDefaultExtraStartSelected() {
+      const defaultId = normalizeStartId(DEFAULT_EXTRA_START_ID);
+      if (!defaultId) return;
+      const startRows = dataStore.startLocations || [];
+      for (let index = 0; index < startRows.length; index += 1) {
+        const item = startRows[index];
+        if (normalizeStartId(item && item.id) !== defaultId) continue;
+        const uid = startLocationUid(item, index);
+        state.selected.add(uid);
+        return;
+      }
+    }
+
+    function isDefaultExtraSelected() {
+      const defaultId = normalizeStartId(DEFAULT_EXTRA_START_ID);
+      if (!defaultId) return false;
+      const startRows = dataStore.startLocations || [];
+      return Array.from(state.selected).some((uid) => {
+        if (!uid || typeof uid !== 'string' || !uid.startsWith('start::')) return false;
+        const idx = Number(uid.split('::')[1]);
+        if (!Number.isFinite(idx)) return false;
+        const item = startRows[idx];
+        return normalizeStartId(item && item.id) === defaultId;
+      });
+    }
+
+    function hasOrdersWithDepotId(targetDepotId, dayKey) {
+      const normalizedTarget = targetDepotId != null ? String(targetDepotId).trim() : '';
+      if (!normalizedTarget) return false;
+      const daysToCheck = dayKey && DAY_KEYS.includes(dayKey) ? [dayKey] : DAY_KEYS;
+      return daysToCheck.some((day) => {
+        const rows = scheduleData[day] || [];
+        return rows.some((order) => {
+          if (!order || typeof order !== 'object') return false;
+          const rawDepot = order.depot_id != null ? String(order.depot_id).trim() : '';
+          return rawDepot === normalizedTarget;
+        });
+      });
+    }
+
+    function determinePreferredStartLocationId(options = {}) {
+      const dayKey = options.dayKey && DAY_KEYS.includes(options.dayKey) ? options.dayKey : state.activeDay;
+      return hasOrdersWithDepotId(PRIORITY_DEPOT_ID, dayKey)
+        ? PRIORITY_START_LOCATION_ID
+        : DEFAULT_START_LOCATION_ID;
+    }
+
+    function applyAutoStartSelection(options = {}) {
+      const dayKey = options.dayKey && DAY_KEYS.includes(options.dayKey) ? options.dayKey : state.activeDay;
+      const preferredStartId = normalizeStartId(
+        options.preferredStartId != null ? options.preferredStartId : determinePreferredStartLocationId({ dayKey })
+      );
+      const defaultExtraId = normalizeStartId(DEFAULT_EXTRA_START_ID);
+      const selectDefaultExtra = options.selectDefaultExtra ?? options.resetSelection === true;
+      const startRows = dataStore.startLocations || [];
+
+      if (options.resetSelection === true) {
+        state.selected.clear();
+      } else {
+        const toRemove = [];
+        Array.from(state.selected).forEach((uid) => {
+          if (!uid || typeof uid !== 'string' || !uid.startsWith('start::')) return;
+          const idx = Number(uid.split('::')[1]);
+          if (!Number.isFinite(idx)) {
+            toRemove.push(uid);
+            return;
+          }
+          const item = startRows[idx];
+          const idValue = normalizeStartId(item && item.id);
+          if (idValue === defaultExtraId) return;
+          toRemove.push(uid);
+        });
+        toRemove.forEach((uid) => state.selected.delete(uid));
+      }
+
+      if (selectDefaultExtra) {
+        ensureDefaultExtraStartSelected();
+      }
+
+      const targetIndex = startRows.findIndex((item) => {
+        if (!item || typeof item !== 'object') return false;
+        return normalizeStartId(item.id) === preferredStartId;
+      });
+
+      const startLocationExists = targetIndex !== -1;
+      if (startLocationExists) {
+        const uid = startLocationUid(startRows[targetIndex], targetIndex);
+        state.selected.add(uid);
+      }
+
+      if (!startLocationExists || !preferredStartId) return;
+
+      (dataStore.vehicles || []).forEach((vehicle) => {
+        if (!vehicle || typeof vehicle !== 'object') return;
+        const currentValue = vehicle.start_at != null ? String(vehicle.start_at).trim() : '';
+        const desiredStartAt = currentValue.toLowerCase().startsWith('start:')
+          ? `start:${preferredStartId}`
+          : preferredStartId;
+        if (currentValue !== desiredStartAt) {
+          vehicle.start_at = desiredStartAt;
+        }
+      });
+      saveLocal();
+    }
+
     function parseSheetDataset(payload) {
       const schedule = DAY_KEYS.reduce((acc, day) => {
         acc[day] = [];
@@ -1273,10 +1391,14 @@
         btn.classList.toggle('active', active);
         btn.setAttribute('aria-selected', active ? 'true' : 'false');
       });
+      const defaultExtraWasSelected = isDefaultExtraSelected();
       state.selected.clear();
+      if (defaultExtraWasSelected) ensureDefaultExtraStartSelected();
       updateSelectedCount();
       state.lastIndexByDay[day] = undefined;
+      applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: false });
       render();
+      renderVehicles();
     }
 
     function render() {
@@ -1346,6 +1468,12 @@
         const li = document.createElement('li');
         li.className = 'store';
         li.dataset.index = String(idx);
+        li.dataset.uid = row.uid || '';
+        if (row.__isStart) {
+          li.dataset.isStart = 'true';
+          const startId = normalizeStartId(row.id);
+          if (startId) li.dataset.startId = startId;
+        }
 
         const hasCoords = row.lat != null && row.lng != null;
         const addrHtml = row.address
@@ -1495,8 +1623,39 @@
       listEl.addEventListener('change', (event) => {
         const checkbox = event.target.closest('input[type="checkbox"][data-uid]');
         if (!checkbox) return;
-        if (checkbox.checked) state.selected.add(checkbox.dataset.uid);
-        else state.selected.delete(checkbox.dataset.uid);
+        const rowEl = checkbox.closest('li.store');
+        const uid = checkbox.dataset.uid;
+        const isStart = rowEl && rowEl.dataset.isStart === 'true';
+        if (isStart) {
+          const startId = normalizeStartId(rowEl ? rowEl.dataset.startId : '');
+          const defaultExtraId = normalizeStartId(DEFAULT_EXTRA_START_ID);
+          if (startId && startId === defaultExtraId) {
+            if (checkbox.checked) state.selected.add(uid);
+            else state.selected.delete(uid);
+            updateSelectedCount();
+            updateSelectedHighlight();
+          } else {
+            if (checkbox.checked) {
+              applyAutoStartSelection({
+                preferredStartId: startId,
+                dayKey: state.activeDay,
+                resetSelection: false,
+                selectDefaultExtra: false
+              });
+            } else {
+              applyAutoStartSelection({
+                dayKey: state.activeDay,
+                resetSelection: false,
+                selectDefaultExtra: false
+              });
+            }
+            render();
+            renderVehicles();
+          }
+          return;
+        }
+        if (checkbox.checked) state.selected.add(uid);
+        else state.selected.delete(uid);
         updateSelectedCount();
         updateSelectedHighlight();
       });
@@ -1529,6 +1688,7 @@
         if (selectAll) state.selected.add(item.uid);
         else state.selected.delete(item.uid);
       });
+      applyAutoStartSelection({ dayKey: state.activeDay, resetSelection: false, selectDefaultExtra: false });
       render();
     }
 
@@ -1699,6 +1859,7 @@
           : [];
         state.selected.clear();
         state.query = '';
+        applyAutoStartSelection({ resetSelection: true, dayKey: state.activeDay, selectDefaultExtra: true });
         render();
         renderVehicles();
         renderDepots();
@@ -1733,6 +1894,7 @@
         dataStore.startLocations = parsed.startLocations || [];
         state.selected.clear();
         state.query = '';
+        applyAutoStartSelection({ resetSelection: true, dayKey: state.activeDay, selectDefaultExtra: true });
         render();
         renderVehicles();
         renderDepots();
