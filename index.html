@@ -47,6 +47,97 @@
       gap: 24px;
     }
 
+    @media (max-width: 768px) {
+      .container {
+        padding: 20px 24px;
+        gap: 20px;
+      }
+      .card {
+        padding: 20px 24px !important;
+      }
+      .card--flush .card-header {
+        padding: 20px 24px !important;
+      }
+      .card--flush .card-body {
+        padding: 20px 24px !important;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        padding: 16px 16px;
+        gap: 16px;
+      }
+      .card {
+        padding: 16px 16px !important;
+      }
+      .card--flush .card-header {
+        padding: 16px 16px !important;
+      }
+      .card--flush .card-body {
+        padding: 16px 16px !important;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .uploader .row {
+        flex-direction: column;
+        width: 100%;
+        align-items: stretch;
+      }
+
+      .uploader .row .mini-btn,
+      .uploader .row a.mini-btn,
+      .uploader details summary.mini-btn,
+      .json-import .row button,
+      .json-import .row input[type="file"] {
+        width: 100%;
+      }
+
+      .uploader details summary.mini-btn {
+        display: block;
+      }
+
+      .json-import {
+        width: 100%;
+      }
+
+      .json-import .row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .header-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+
+      .header-controls .row {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-start;
+      }
+
+      #searchSticky {
+        flex: 0 0 100%;
+        max-width: none !important;
+        width: 100% !important;
+      }
+
+      #selectAll,
+      #clearAll {
+        flex: 1 1 calc(50% - 4px);
+      }
+
+      #exportXlsx {
+        flex: 0 0 100%;
+        width: 100%;
+      }
+    }
+
     header {
       display: flex;
       gap: 16px;
@@ -1431,8 +1522,8 @@
         <h2 class="row" style="margin:0">
           <span>${WEEKDAY_LABELS[day]}</span>
           <span class="badge muted">Всего ${list.length}</span>
+          <span class="badge" id="selectedCount">Выбрано: ${state.selected.size}</span>
         </h2>
-        <div class="badge" id="selectedCount">Выбрано: ${state.selected.size}</div>
         <div class="row" style="flex:1; justify-content:flex-end; gap:8px; flex-wrap:wrap">
           <input id="searchSticky" type="search" placeholder="Поиск: название, адрес или телефон…" style="max-width:320px; width:100%" />
           <button id="selectAll">Выбрать все</button>
