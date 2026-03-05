@@ -879,6 +879,15 @@
       sunday: 'Воскресенье'
     };
     const DAY_KEYS = Object.keys(WEEKDAY_LABELS);
+    const CANON_TO_JS_DAY = {
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+      sunday: 0
+    };
     const SHEET_NAME_BY_DAY = {
       monday: 'понедельник',
       tuesday: 'вторник',
@@ -1180,6 +1189,26 @@
     function toStrPhone(phone) {
       if (phone == null) return '';
       try { return String(phone).trim(); } catch (_) { return ''; }
+    }
+
+    function formatDateForFile(date) {
+      const dd = String(date.getDate()).padStart(2, '0');
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const yyyy = date.getFullYear();
+      return `${dd}.${mm}.${yyyy}`;
+    }
+
+    function getDeliveryDateForDay(dayKey) {
+      const today = new Date();
+      const todayJs = today.getDay(); // 0 (вс) – 6 (сб)
+      const targetJs = CANON_TO_JS_DAY[dayKey] ?? todayJs;
+      let diff = (targetJs - todayJs + 7) % 7;
+      const result = new Date(today);
+      result.setHours(0, 0, 0, 0);
+      if (diff !== 0) {
+        result.setDate(result.getDate() + diff);
+      }
+      return result;
     }
 
     function toNumOrNull(value) {
@@ -1924,6 +1953,10 @@
         return;
       }
 
+      const deliveryDate = getDeliveryDateForDay(state.activeDay);
+      const baseFileName = `Заморозка_заказы_${formatDateForFile(deliveryDate)}`;
+      const fileName = `${baseFileName}.xlsx`;
+
       try {
         const wb = XLSX.utils.book_new();
 
@@ -1940,14 +1973,14 @@
         XLSX.utils.book_append_sheet(wb, depotsSheet, EXPORT_SCHEMAS.depots.sheetName);
 
         try {
-          XLSX.writeFile(wb, 'orders.xlsx', { compression: true, bookSST: true });
+          XLSX.writeFile(wb, fileName, { compression: true, bookSST: true });
         } catch (writeErr) {
           const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], {
             type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           });
           const link = document.createElement('a');
           link.href = URL.createObjectURL(blob);
-          link.download = 'orders.xlsx';
+          link.download = fileName;
           document.body.appendChild(link);
           link.click();
           URL.revokeObjectURL(link.href);
