@@ -1538,6 +1538,20 @@
           )
         : combinedList;
 
+      const excludedStartIds = new Set([
+        normalizeStartId(PRIORITY_START_LOCATION_ID),
+        normalizeStartId(DEFAULT_START_LOCATION_ID),
+        normalizeStartId(DEFAULT_EXTRA_START_ID)
+      ]);
+
+      const totalVisible = list.reduce((acc, item) => {
+        if (item && item.__isStart) {
+          const idValue = normalizeStartId(item.id);
+          if (!idValue || excludedStartIds.has(idValue)) return acc;
+        }
+        return acc + 1;
+      }, 0);
+
       dom.root.innerHTML = '';
 
       const headingWrap = document.createElement('div');
@@ -1548,7 +1562,7 @@
       topControls.innerHTML = `
         <h2 class="row" style="margin:0">
           <span>${WEEKDAY_LABELS[day]}</span>
-          <span class="badge muted">Всего ${list.length}</span>
+          <span class="badge muted">Всего ${totalVisible}</span>
           <span class="badge" id="selectedCount">Выбрано: ${state.selected.size}</span>
         </h2>
         <div class="row" style="flex:1; justify-content:flex-end; gap:8px; flex-wrap:wrap">
