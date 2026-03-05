@@ -1147,7 +1147,34 @@
 
     function updateSelectedCount() {
       const counter = document.getElementById('selectedCount');
-      if (counter) counter.textContent = `Выбрано: ${state.selected.size}`;
+      if (!counter) return;
+
+      // Считаем выбранные точки, исключая три специальные стартовые:
+      // 1111 (ИМ Восток), 1110 (ИМ Центр), 1114 (Дом).
+      const excludedStartIds = new Set([
+        normalizeStartId(PRIORITY_START_LOCATION_ID),
+        normalizeStartId(DEFAULT_START_LOCATION_ID),
+        normalizeStartId(DEFAULT_EXTRA_START_ID)
+      ]);
+
+      let visibleCount = 0;
+      const startRows = dataStore.startLocations || [];
+
+      state.selected.forEach((uid) => {
+        if (typeof uid !== 'string') return;
+        if (uid.startsWith('start::')) {
+          const idx = Number(uid.split('::')[1]);
+          if (!Number.isFinite(idx)) return;
+          const item = startRows[idx];
+          const idValue = normalizeStartId(item && item.id);
+          if (!idValue || excludedStartIds.has(idValue)) return;
+          visibleCount += 1;
+        } else {
+          visibleCount += 1;
+        }
+      });
+
+      counter.textContent = `Выбрано: ${visibleCount}`;
     }
 
     function toStrPhone(phone) {
