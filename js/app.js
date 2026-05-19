@@ -940,6 +940,12 @@
       errors: document.getElementById('errors'),
       errorMessage: document.getElementById('errorMessage'),
       errorClose: document.getElementById('errorClose'),
+      notify: document.getElementById('notify'),
+      notifyMessage: document.getElementById('notifyMessage'),
+      notifyIcon: document.getElementById('notifyIcon'),
+      notifyClose: document.getElementById('notifyClose'),
+      storesSection: document.getElementById('storesSection'),
+      dataSection: document.getElementById('dataSection'),
       modeButtons: Array.from(document.querySelectorAll('.mode-btn')),
       dataSourceLabel: document.getElementById('dataSourceLabel'),
       sheetOnboarding: document.getElementById('sheetOnboarding'),
@@ -1192,6 +1198,210 @@
       dom.errorMessage.textContent = '';
     }
 
+
+    const LIST_LAZY_BATCH = 40;
+    let listRenderToken = 0;
+    let listLazyObserver = null;
+    let notifyHideTimer = null;
+
+    const MODE_LOAD_LABELS = { horeca: 'HoReCa', gallery: 'Галереи' };
+
+    function ensureActionButton(btn) {
+      if (!btn) return null;
+      if (!btn.classList.contains('btn-action')) {
+        btn.classList.add('btn-action');
+        const label = (btn.textContent || '').trim() || 'Действие';
+        btn.textContent = '';
+        btn.innerHTML = `
+          <span class="btn-action__spinner" aria-hidden="true"></span>
+          <span class="btn-action__icon" aria-hidden="true"></span>
+          <span class="btn-action__label">${escapeHtml(label)}</span>
+        `;
+        btn.dataset.defaultLabel = label;
+      }
+      return btn;
+    }
+
+    function setActionButtonState(btn, state, options = {}) {
+      if (!btn) return;
+      ensureActionButton(btn);
+      btn.classList.remove('btn-action--loading', 'btn-action--success');
+      const labelEl = btn.querySelector('.btn-action__label');
+      const defaultLabel = btn.dataset.defaultLabel || (labelEl ? labelEl.textContent : '') || '';
+      if (!btn.dataset.defaultLabel && defaultLabel) btn.dataset.defaultLabel = defaultLabel;
+      if (state === 'loading') {
+        btn.disabled = true;
+        btn.classList.add('btn-action--loading');
+        btn.setAttribute('aria-busy', 'true');
+        if (labelEl) labelEl.textContent = options.loadingText || 'Загрузка…';
+        return;
+      }
+      btn.removeAttribute('aria-busy');
+      if (state === 'success') {
+        btn.disabled = false;
+        btn.classList.add('btn-action--success');
+        if (labelEl) labelEl.textContent = options.successText || 'Готово';
+        return;
+      }
+      btn.disabled = options.disabled === true;
+      if (labelEl) labelEl.textContent = options.label || defaultLabel;
+    }
+
+    function setSyncingUi(syncing) {
+      dom.dataSection?.classList.toggle('is-syncing', syncing);
+    }
+
+    function hideNotify() {
+      if (notifyHideTimer) {
+        clearTimeout(notifyHideTimer);
+        notifyHideTimer = null;
+      }
+      if (!dom.notify) return;
+      dom.notify.setAttribute('aria-hidden', 'true');
+    }
+
+    function showNotify(message, type = 'success', duration = 4500) {
+      if (!dom.notify || !dom.notifyMessage) return;
+      hideNotify();
+      dom.notifyMessage.textContent = message;
+      dom.notify.classList.remove('toast--success', 'toast--info');
+      dom.notify.classList.add(type === 'info' ? 'toast--info' : 'toast--success');
+      if (dom.notifyIcon) dom.notifyIcon.textContent = type === 'info' ? 'i' : '✓';
+      dom.notify.setAttribute('aria-hidden', 'false');
+      if (duration > 0) {
+        notifyHideTimer = setTimeout(hideNotify, duration);
+      }
+    }
+
+    function celebrateExport(btn) {
+      const target = btn || document.getElementById('exportXlsx');
+      if (!target) return;
+      target.classList.add('export-celebrate');
+      setTimeout(() => target.classList.remove('export-celebrate'), 900);
+    }
+
+    function disconnectListLazyObserver() {
+      if (listLazyObserver) {
+        listLazyObserver.disconnect();
+        listLazyObserver = null;
+      }
+    }
+
+    function createStoreListItem(row, idx, day) {
+      const li = document.createElement('li');
+      li.className = row.__isExtra ? 'store store--extra store--lazy-enter' : 'store store--lazy-enter';
+      li.dataset.index = String(idx);
+      li.dataset.uid = row.uid || '';
+      if (row.__isExtra) {
+        li.dataset.isExtra = 'true';
+        li.dataset.extraId = row.id || '';
+      }
+      if (row.__isStart) {
+        li.dataset.isStart = 'true';
+        const startId = normalizeStartId(row.id);
+        if (startId) li.dataset.startId = startId;
+      }
+      if (row.__sourceMode) li.dataset.sourceMode = row.__sourceMode;
+
+      const hasCoords = row.lat != null && row.lng != null;
+      const addrHtml = row.address
+        ? hasCoords
+          ? `<a class="muted addr-link" href="http://maps.yandex.ru/?text=${encodeURIComponent(row.lat + ',' + row.lng)}" target="_blank" rel="noopener">${highlight(escapeHtml(row.address), state.query)}</a><span style="opacity:.6">&nbsp;↗</span>`
+          : `<span class="muted">${highlight(escapeHtml(row.address), state.query)}</span>`
+        : '';
+      const mins = Number.isFinite(row.delivery_seconds) ? Math.round(row.delivery_seconds / 60) : null;
+      const timeWindow = row.time_window ? `<span class="pill">⏰ ${escapeHtml(row.time_window)}</span>` : '';
+      const depot = row.depot_name || row.depot_id ? `<span class="pill" title="Склад">🏷️ ${escapeHtml(row.depot_name ? `${row.depot_name}` : `ID ${row.depot_id}`)}</span>` : '';
+      const serviceTime = mins !== null ? `<span class="pill" title="Время на доставку (сек): ${row.delivery_seconds}">⏱ ${mins} мин</span>` : '';
+      const typePill = row.__isStart && row.type ? `<span class="pill">🏁 ${escapeHtml(row.type)}</span>` : '';
+      const extraPill = row.__isExtra ? '<span class="pill" title="Разовая точка, не из Google Sheets">✨ Разовая</span>' : '';
+      const sourcePill = row.__sourceLabel
+        ? `<span class="pill pill--source" title="Источник данных">${escapeHtml(row.__sourceLabel)}</span>`
+        : '';
+      const phoneHtml = row.phone ? `<span class="muted">☎ ${highlight(escapeHtml(toStrPhone(row.phone)), state.query)}</span>` : '';
+      const pillsHtml = [sourcePill, timeWindow, serviceTime, depot, typePill, extraPill].filter(Boolean).join('');
+      const extraDeleteBtn = row.__isExtra
+        ? `<div class="store-extra-actions"><button type="button" class="mini-btn" data-act="del-extra" title="Удалить разовую точку">Удалить</button></div>`
+        : '';
+      const detailParts = [];
+      if (addrHtml) detailParts.push(addrHtml);
+      if (phoneHtml) detailParts.push(phoneHtml);
+      const detailsHtml = detailParts.length ? detailParts.join('<span class="sep">•</span>') : '';
+      const metaHtml = (pillsHtml || detailsHtml) ? `
+        <div class="store-meta">
+          ${pillsHtml ? `<div class="store-meta-pills">${pillsHtml}</div>` : ''}
+          ${detailsHtml ? `<div class="store-meta-details">${detailsHtml}</div>` : ''}
+        </div>` : '';
+
+      li.innerHTML = `
+        <div class="row-item">
+          <input type="checkbox" data-uid="${row.uid}" ${state.selected.has(row.uid) ? 'checked' : ''} />
+          <div class="store-line">
+            <span class="title">${highlight(escapeHtml(row.title || row.store || 'Без названия'), state.query)}</span>
+            ${metaHtml}
+          </div>
+          ${extraDeleteBtn}
+        </div>
+      `;
+      if (row.__isExtra) {
+        const delBtn = li.querySelector('[data-act="del-extra"]');
+        if (delBtn) {
+          delBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            if (confirm('Удалить эту разовую точку?')) {
+              removeExtraOrder(day, row.id, row.__sourceMode);
+            }
+          });
+        }
+      }
+      return li;
+    }
+
+    function mountStoreLazySentinel(listEl, items, day, nextIndex, token) {
+      const sentinel = document.createElement('li');
+      sentinel.className = 'stores-lazy-sentinel';
+      sentinel.innerHTML = `
+        <div class="lazy-sentinel-inner">
+          <div class="store-skeleton"></div>
+          <div class="store-skeleton"></div>
+        </div>
+      `;
+      listEl.appendChild(sentinel);
+      disconnectListLazyObserver();
+      listLazyObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting || token !== listRenderToken) return;
+          disconnectListLazyObserver();
+          sentinel.remove();
+          appendStoreLazyBatch(listEl, items, day, nextIndex, token);
+        });
+      }, { root: null, rootMargin: '240px 0px', threshold: 0 });
+      listLazyObserver.observe(sentinel);
+    }
+
+    function appendStoreLazyBatch(listEl, items, day, startIndex, token) {
+      if (token !== listRenderToken) return startIndex;
+      const end = Math.min(startIndex + LIST_LAZY_BATCH, items.length);
+      const frag = document.createDocumentFragment();
+      for (let i = startIndex; i < end; i += 1) {
+        frag.appendChild(createStoreListItem(items[i], i, day));
+      }
+      const sentinel = listEl.querySelector('.stores-lazy-sentinel');
+      if (sentinel) sentinel.remove();
+      listEl.appendChild(frag);
+      if (end < items.length) mountStoreLazySentinel(listEl, items, day, end, token);
+      return end;
+    }
+
+    function mountStoreListLazy(listEl, items, day) {
+      disconnectListLazyObserver();
+      const token = ++listRenderToken;
+      listEl.innerHTML = '';
+      if (!items.length) return;
+      const end = appendStoreLazyBatch(listEl, items, day, 0, token);
+      if (end < items.length) mountStoreLazySentinel(listEl, items, day, end, token);
+    }
+
     function escapeHtml(value) {
       return String(value)
         .replaceAll('&', '&amp;')
@@ -1284,6 +1494,7 @@
     function updateExportButtonState() {
       const btn = document.getElementById('exportXlsx');
       if (!btn) return;
+      if (btn.classList.contains('btn-action--loading') || btn.classList.contains('btn-action--success')) return;
       const ready = hasExportableSelection();
       btn.disabled = !ready;
       btn.classList.toggle('export-btn--ready', ready);
@@ -2096,7 +2307,11 @@
       }
       updateSelectedCount();
       state.lastIndexByDay[day] = undefined;
+      dom.storesSection?.classList.add('is-day-switching');
       render();
+      requestAnimationFrame(() => {
+        dom.storesSection?.classList.remove('is-day-switching');
+      });
       renderVehicles();
     }
 
@@ -2156,7 +2371,11 @@
           <button id="addExtraOrder" class="mini-btn" type="button" ${canAddExtra ? '' : 'disabled title="Сначала обновите данные из Google Sheets"'}>+ Разовая точка</button>
           <button id="selectAll">Выбрать все</button>
           <button id="clearAll">Снять выбор</button>
-          <button id="exportXlsx" type="button" class="mini-btn export-btn${hasExportableSelection() ? ' export-btn--ready' : ''}"${hasExportableSelection() ? '' : ' disabled'}>Скачать таблицу для планирования</button>
+          <button id="exportXlsx" type="button" class="mini-btn export-btn btn-action${hasExportableSelection() ? ' export-btn--ready' : ''}"${hasExportableSelection() ? '' : ' disabled'}>
+            <span class="btn-action__spinner" aria-hidden="true"></span>
+            <span class="btn-action__icon" aria-hidden="true"></span>
+            <span class="btn-action__label">Скачать таблицу для планирования</span>
+          </button>
         </div>
       `;
       headingWrap.appendChild(topControls);
@@ -2187,76 +2406,32 @@
 
       const listEl = document.createElement('ul');
       listEl.className = 'stores';
-      list.forEach((row, idx) => {
-        const li = document.createElement('li');
-        li.className = row.__isExtra ? 'store store--extra' : 'store';
-        li.dataset.index = String(idx);
-        li.dataset.uid = row.uid || '';
-        if (row.__isExtra) {
-          li.dataset.isExtra = 'true';
-          li.dataset.extraId = row.id || '';
+      if (!list.length) {
+        const empty = document.createElement('p');
+        empty.className = 'empty-hint stores-empty';
+        empty.textContent = query
+          ? 'Ничего не найдено. Попробуйте другой запрос.'
+          : 'На этот день пока нет точек. Обновите данные из Google Sheets.';
+        dom.root.appendChild(empty);
+      } else {
+        mountStoreListLazy(listEl, list, day);
+        dom.root.appendChild(listEl);
+        if (list.length > LIST_LAZY_BATCH) {
+          const lazyHint = document.createElement('p');
+          lazyHint.className = 'stores-lazy-hint muted';
+          lazyHint.textContent = `Всего ${list.length} · подгружаем список при прокрутке`;
+          dom.root.appendChild(lazyHint);
         }
-        if (row.__isStart) {
-          li.dataset.isStart = 'true';
-          const startId = normalizeStartId(row.id);
-          if (startId) li.dataset.startId = startId;
-        }
-        if (row.__sourceMode) li.dataset.sourceMode = row.__sourceMode;
+      }
 
-        const hasCoords = row.lat != null && row.lng != null;
-        const addrHtml = row.address
-          ? hasCoords
-            ? `<a class="muted addr-link" href="http://maps.yandex.ru/?text=${encodeURIComponent(row.lat + ',' + row.lng)}" target="_blank" rel="noopener">${highlight(escapeHtml(row.address), state.query)}</a><span style="opacity:.6">&nbsp;↗</span>`
-            : `<span class="muted">${highlight(escapeHtml(row.address), state.query)}</span>`
-          : '';
-        const mins = Number.isFinite(row.delivery_seconds) ? Math.round(row.delivery_seconds / 60) : null;
-        const timeWindow = row.time_window ? `<span class="pill">⏰ ${escapeHtml(row.time_window)}</span>` : '';
-        const depot = row.depot_name || row.depot_id ? `<span class="pill" title="Склад">🏷️ ${escapeHtml(row.depot_name ? `${row.depot_name}` : `ID ${row.depot_id}`)}</span>` : '';
-        const serviceTime = mins !== null ? `<span class="pill" title="Время на доставку (сек): ${row.delivery_seconds}">⏱ ${mins} мин</span>` : '';
-        const typePill = row.__isStart && row.type ? `<span class="pill">🏁 ${escapeHtml(row.type)}</span>` : '';
-        const extraPill = row.__isExtra ? '<span class="pill" title="Разовая точка, не из Google Sheets">✨ Разовая</span>' : '';
-        const sourcePill = row.__sourceLabel
-          ? `<span class="pill pill--source" title="Источник данных">${escapeHtml(row.__sourceLabel)}</span>`
-          : '';
-        const phoneHtml = row.phone ? `<span class="muted">☎ ${highlight(escapeHtml(toStrPhone(row.phone)), state.query)}</span>` : '';
-        const pillsHtml = [sourcePill, timeWindow, serviceTime, depot, typePill, extraPill].filter(Boolean).join('');
-        const extraDeleteBtn = row.__isExtra
-          ? `<div class="store-extra-actions"><button type="button" class="mini-btn" data-act="del-extra" title="Удалить разовую точку">Удалить</button></div>`
-          : '';
-        const detailParts = [];
-        if (addrHtml) detailParts.push(addrHtml);
-        if (phoneHtml) detailParts.push(phoneHtml);
-        const detailsHtml = detailParts.length ? detailParts.join('<span class="sep">•</span>') : '';
-        const metaHtml = (pillsHtml || detailsHtml) ? `
-          <div class="store-meta">
-            ${pillsHtml ? `<div class="store-meta-pills">${pillsHtml}</div>` : ''}
-            ${detailsHtml ? `<div class="store-meta-details">${detailsHtml}</div>` : ''}
-          </div>` : '';
+      topControls.querySelector('#selectAll').addEventListener('click', () => bulkSelect(true));
+      topControls.querySelector('#clearAll').addEventListener('click', () => bulkSelect(false));
 
-        li.innerHTML = `
-          <div class="row-item">
-            <input type="checkbox" data-uid="${row.uid}" ${state.selected.has(row.uid) ? 'checked' : ''} />
-            <div class="store-line">
-              <span class="title">${highlight(escapeHtml(row.title || row.store || 'Без названия'), state.query)}</span>
-              ${metaHtml}
-            </div>
-            ${extraDeleteBtn}
-          </div>
-        `;
-        if (row.__isExtra) {
-          const delBtn = li.querySelector('[data-act="del-extra"]');
-          if (delBtn) {
-            delBtn.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              if (confirm('Удалить эту разовую точку?')) {
-                removeExtraOrder(day, row.id, row.__sourceMode);
-              }
-            });
-          }
-        }
-        listEl.appendChild(li);
-      });
-      dom.root.appendChild(listEl);
+      if (!list.length) {
+        updateSelectedCount();
+        updateSelectedHighlight();
+        return;
+      }
 
       listEl.addEventListener('mousedown', (event) => {
         if (event.button !== 0) return;
@@ -2436,9 +2611,6 @@
         updateSelectedHighlight();
       });
 
-      topControls.querySelector('#selectAll').addEventListener('click', () => bulkSelect(true));
-      topControls.querySelector('#clearAll').addEventListener('click', () => bulkSelect(false));
-
       updateSelectedCount();
       updateSelectedHighlight();
     }
@@ -2594,7 +2766,7 @@
     }
 
     async function exportSelectedXlsx() {
-      const btn = document.getElementById('exportXlsx');
+      const btn = ensureActionButton(document.getElementById('exportXlsx'));
       if (!hasExportableSelection()) {
         showError('Выберите хотя бы одну точку доставки (не стартовую).');
         return;
@@ -2610,15 +2782,13 @@
         return;
       }
       clearError();
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = 'Готовим…';
-      }
+      setActionButtonState(btn, 'loading', { loadingText: 'Собираем таблицу…' });
+      if (btn) btn.classList.add('export-btn--ready');
 
       const ok = await ensureXlsxReady();
       if (!ok) {
         showError('Не удалось загрузить библиотеку XLSX.');
-        if (btn) btn.textContent = 'Скачать таблицу для планирования';
+        setActionButtonState(btn, 'idle');
         updateExportButtonState();
         return;
       }
@@ -2657,11 +2827,18 @@
           URL.revokeObjectURL(link.href);
           link.remove();
         }
+        setActionButtonState(btn, 'success', { successText: 'Скачано!' });
+        celebrateExport(btn);
+        showNotify(`Файл «${fileName}» скачан — можно загружать в планировщик.`, 'success', 5500);
+        setTimeout(() => {
+          setActionButtonState(btn, 'idle');
+          updateExportButtonState();
+        }, 2200);
       } catch (err) {
         console.error(err);
         showError('Не удалось сформировать Excel-файл. Откройте консоль для подробностей.');
+        setActionButtonState(btn, 'idle');
       } finally {
-        if (btn) btn.textContent = 'Скачать таблицу для планирования';
         updateExportButtonState();
       }
     }
@@ -2735,17 +2912,23 @@
     }
 
     async function loadFromGoogleSheets() {
-      const btn = dom.loadSheetBtn;
+      const btn = ensureActionButton(dom.loadSheetBtn);
       const modesToLoad = isAllMode() ? SOURCE_MODE_IDS : [getActiveMode()];
+      let loadSucceeded = false;
       try {
         clearError();
-        if (btn) {
-          btn.disabled = true;
-          btn.textContent = 'Загружаем…';
-        }
-        for (const sourceMode of modesToLoad) {
+        setSyncingUi(true);
+        setActionButtonState(btn, 'loading', { loadingText: 'Подключаемся…' });
+        for (let i = 0; i < modesToLoad.length; i += 1) {
+          const sourceMode = modesToLoad[i];
+          const label = MODE_LOAD_LABELS[sourceMode] || sourceMode;
+          const loadingText = modesToLoad.length > 1
+            ? `Загрузка: ${label} (${i + 1}/${modesToLoad.length})…`
+            : 'Загружаем из таблицы…';
+          setActionButtonState(btn, 'loading', { loadingText });
           await loadSheetForMode(sourceMode);
         }
+        loadSucceeded = true;
         dismissSheetOnboarding(true);
         if (isAllMode()) {
           state.selected.clear();
@@ -2766,10 +2949,16 @@
       } catch (err) {
         console.error('Sheet load failed', err);
         showError('Не удалось загрузить данные из Google Sheets: ' + err.message);
+        setActionButtonState(btn, 'idle');
       } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.textContent = 'Обновить из Google Sheets';
+        setSyncingUi(false);
+        if (loadSucceeded) {
+          setActionButtonState(btn, 'success', { successText: 'Обновлено' });
+          const notifyText = modesToLoad.length > 1
+            ? 'Расписание и справочники загружены (HoReCa + Галереи).'
+            : `Данные «${getModeConfig(modesToLoad[0]).label}» обновлены.`;
+          showNotify(notifyText, 'success');
+          setTimeout(() => setActionButtonState(btn, 'idle'), 2000);
         }
       }
     }
@@ -3452,6 +3641,12 @@
     if (dom.errorClose) {
       dom.errorClose.addEventListener('click', () => clearError());
     }
+
+    if (dom.notifyClose) {
+      dom.notifyClose.addEventListener('click', () => hideNotify());
+    }
+
+    ensureActionButton(dom.loadSheetBtn);
 
     if (dom.loadSheetBtn) {
       dom.loadSheetBtn.addEventListener('click', () => loadFromGoogleSheets());

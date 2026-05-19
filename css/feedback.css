@@ -1,0 +1,286 @@
+/* UX: загрузка, уведомления, lazy-list */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes syncBar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes storeReveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes successPop {
+  0% { transform: scale(0.6); opacity: 0; }
+  55% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes exportCelebrate {
+  0% { box-shadow: 0 0 0 0 rgba(110, 168, 254, 0.55); }
+  70% { box-shadow: 0 0 0 14px rgba(110, 168, 254, 0); }
+  100% { box-shadow: none; }
+}
+
+@keyframes exportGlowRipple {
+  0% {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) scale(0.75);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.4);
+  }
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+.btn-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.btn-action__spinner,
+.btn-action__icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  display: none;
+  box-sizing: border-box;
+}
+
+.btn-action__spinner {
+  border: 2px solid rgba(154, 163, 178, 0.35);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+}
+
+.btn-action__icon::before {
+  content: '✓';
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #7ddea8;
+  line-height: 16px;
+  text-align: center;
+}
+
+.btn-action--loading .btn-action__spinner {
+  display: inline-block;
+}
+
+.btn-action--loading {
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+/* Дублируем для mini-btn — выше специфичность, чем display:flex у кнопки */
+button.mini-btn.btn-action.btn-action--loading .btn-action__spinner,
+#loadSheet.btn-action--loading .btn-action__spinner {
+  display: inline-block !important;
+  visibility: visible;
+}
+
+#loadSheet.btn-action--loading {
+  gap: 10px;
+  padding-left: 14px;
+  padding-right: 16px;
+}
+
+#loadSheet.btn-action--loading .btn-action__label {
+  white-space: nowrap;
+}
+
+.btn-action--success .btn-action__icon {
+  display: block;
+  animation: successPop 0.45s ease;
+}
+
+.btn-action--success.export-btn--ready {
+  background: #1e3a2f;
+  border-color: #3d6b52;
+}
+
+#exportXlsx.btn-action--success.export-btn--ready {
+  animation: exportCelebrate 0.9s ease;
+}
+
+.toast--notify {
+  top: 88px;
+  border-color: #2e4a38;
+  background: rgba(22, 36, 30, 0.96);
+}
+
+.toast--notify.toast--info {
+  border-color: #334060;
+  background: rgba(24, 30, 48, 0.96);
+}
+
+.toast--error {
+  border-color: #5a3038;
+  background: rgba(42, 22, 28, 0.96);
+}
+
+.toast-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: rgba(125, 222, 168, 0.15);
+  color: #7ddea8;
+}
+
+.toast--info .toast-icon {
+  background: rgba(110, 168, 254, 0.15);
+  color: var(--accent);
+}
+
+.toast--error .toast-icon {
+  background: rgba(255, 120, 120, 0.12);
+  color: #ff9a9a;
+}
+
+/* overflow не hidden — иначе ломается position: sticky у .sticky-header внутри #root */
+#storesSection {
+  position: relative;
+}
+
+#dataSection {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Полоски загрузки — только у блока «Исходные данные» (сверху и снизу) */
+#dataSection.is-syncing::before,
+#dataSection.is-syncing::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 2;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: syncBar 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+#dataSection.is-syncing::before {
+  top: 0;
+}
+
+#dataSection.is-syncing::after {
+  bottom: 0;
+}
+
+#storesSection.is-day-switching .stores {
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.store.store--lazy-enter {
+  animation: storeReveal 0.32s ease backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .store.store--lazy-enter,
+  .btn-action__spinner,
+  #dataSection.is-syncing::before,
+  #dataSection.is-syncing::after,
+  #exportXlsx.export-celebrate::after {
+    animation: none;
+  }
+
+  .store.store--lazy-enter {
+    opacity: 1;
+    transform: none;
+  }
+
+  #exportXlsx.export-celebrate::after {
+    opacity: 0;
+  }
+}
+
+.stores-lazy-sentinel {
+  list-style: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: default;
+  pointer-events: none;
+}
+
+.lazy-sentinel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 8px;
+}
+
+.store-skeleton {
+  height: 72px;
+  border-radius: 12px;
+  border: 1px solid #1a1f31;
+  background: linear-gradient(90deg, #0e1119 0%, #151a28 50%, #0e1119 100%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.2s ease-in-out infinite;
+}
+
+.stores-empty {
+  margin: 16px 0 8px;
+  padding: 20px;
+  text-align: center;
+  border: 1px dashed #2a2f44;
+  border-radius: 12px;
+  color: var(--muted);
+}
+
+.stores-lazy-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* Вспышка у кнопки «Скачать таблицу», а не по центру экрана */
+#exportXlsx.export-celebrate {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+#exportXlsx.export-celebrate::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 160%;
+  min-width: 180px;
+  height: 220%;
+  border-radius: 14px;
+  pointer-events: none;
+  z-index: -1;
+  background: radial-gradient(ellipse at center, rgba(110, 168, 254, 0.32), transparent 70%);
+  animation: exportGlowRipple 0.85s ease-out forwards;
+}

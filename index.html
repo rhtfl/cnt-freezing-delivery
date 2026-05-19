@@ -5,15 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Доставка заморозки</title>
   <link rel="stylesheet" href="css/app.css" />
+  <link rel="stylesheet" href="css/feedback.css" />
   <script id="xlsx-lib" src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
   <script src="config/app.config.js"></script>
   <script src="js/app.js" defer></script>
 </head>
 <body>
-  <div id="errors" class="toast" aria-hidden="true">
+  <div id="errors" class="toast toast--error" aria-hidden="true">
     <div class="toast-body">
       <div id="errorMessage" class="toast-message"></div>
       <button id="errorClose" type="button" class="toast-close" aria-label="Закрыть">×</button>
+    </div>
+  </div>
+
+  <div id="notify" class="toast toast--notify" aria-hidden="true" role="status">
+    <div class="toast-body">
+      <span class="toast-icon" id="notifyIcon" aria-hidden="true"></span>
+      <div id="notifyMessage" class="toast-message"></div>
+      <button id="notifyClose" type="button" class="toast-close" aria-label="Закрыть">×</button>
     </div>
   </div>
   <div class="container">
@@ -37,7 +46,11 @@
         </p>
         <div class="uploader" style="gap:12px; align-items:flex-start">
           <div class="row" style="gap:12px; flex-wrap:wrap">
-            <button id="loadSheet" class="mini-btn" type="button">Обновить из Google Sheets</button>
+            <button id="loadSheet" class="mini-btn btn-action" type="button">
+            <span class="btn-action__spinner" aria-hidden="true"></span>
+            <span class="btn-action__icon" aria-hidden="true"></span>
+            <span class="btn-action__label">Обновить из Google Sheets</span>
+          </button>
             <a
               id="yandexPlanningLink"
               class="mini-btn"
