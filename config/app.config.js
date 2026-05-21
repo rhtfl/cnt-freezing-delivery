@@ -18,6 +18,9 @@ window.APP_CONFIG = {
   yandexPlanningUrl:
     'https://yandex.ru/courier/companies/31071/depots/all/mvrp/import',
 
+  /** Срок хранения импорта из Google Sheets в localStorage (минуты) */
+  sheetCacheTtlMinutes: 30,
+
   /**
    * Имена листов в Google Sheets (если у режима нет своих sheetNameByDay).
    * Расписание — по дням недели; справочники — фиксированные имена.

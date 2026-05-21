@@ -677,6 +677,345 @@
       return `sheetSynced_${mode || getActiveMode()}`;
     }
 
+    function sheetCacheStorageKey(mode) {
+      return `sheetImportCache_${mode || getActiveMode()}`;
+    }
+
+    function getSheetCacheTtlMs() {
+      const minutes = Number(APP.sheetCacheTtlMinutes);
+      return (Number.isFinite(minutes) && minutes > 0 ? minutes : 30) * 60 * 1000;
+    }
+
+    let sheetCacheUiTimer = null;
+
+    function readSheetCache(mode) {
+      try {
+        const raw = localStorage.getItem(sheetCacheStorageKey(mode));
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function isSheetCacheValid(cache) {
+      if (!cache || typeof cache.importedAt !== 'number') return false;
+      return Date.now() - cache.importedAt < getSheetCacheTtlMs();
+    }
+
+    function hasValidSheetCache(mode) {
+      return isSheetCacheValid(readSheetCache(mode));
+    }
+
+    function getSheetCacheImportedAt(mode) {
+      const cache = readSheetCache(mode);
+      return isSheetCacheValid(cache) ? cache.importedAt : null;
+    }
+
+    function normalizeScheduleCache(schedule) {
+      const base = createEmptySchedule();
+      if (!schedule || typeof schedule !== 'object') return base;
+      DAY_KEYS.forEach((day) => {
+        base[day] = (schedule[day] || []).map((entry) => normalizeOrderRecord(entry)).filter(Boolean);
+      });
+      return base;
+    }
+
+    function applySheetCacheToStore(mode, cache) {
+      const store = getStoreForMode(mode);
+      store.scheduleData = normalizeScheduleCache(cache.scheduleData);
+      if (Array.isArray(cache.vehicles)) {
+        store.vehicles = cache.vehicles.map((item) => normalizeVehicleRecord(item)).filter(Boolean);
+      }
+      if (Array.isArray(cache.depots)) {
+        store.depots = cache.depots.map((item) => normalizeDepotRecord(item)).filter(Boolean);
+      }
+      if (Array.isArray(cache.startLocations)) {
+        store.startLocations = cache.startLocations.map((item) => normalizeStartRecord(item)).filter(Boolean);
+      }
+      store.selected = new Set(Array.isArray(cache.selected) ? cache.selected.map(String) : []);
+      if (Array.isArray(cache.selectedVehicleIds)) {
+        store.selectedVehicleIds = new Set(cache.selectedVehicleIds.map(String));
+      }
+      const prevMode = state.activeMode;
+      state.activeMode = mode;
+      pruneVehicleSelection();
+      state.activeMode = prevMode;
+    }
+
+    function clearSheetImportCache(mode) {
+      try {
+        localStorage.removeItem(sheetCacheStorageKey(mode || getActiveMode()));
+      } catch (_) {}
+    }
+
+    function allModeSelectionCacheKey() {
+      return 'sheetImportCache_all_selection';
+    }
+
+    function persistAllModeSelectionCache() {
+      if (!isAllMode()) return;
+      const importedAt = Math.min(...SOURCE_MODE_IDS.map(getSheetCacheImportedAt).filter(Boolean));
+      if (!importedAt) return;
+      try {
+        localStorage.setItem(allModeSelectionCacheKey(), JSON.stringify({
+          importedAt,
+          selected: Array.from(state.selected)
+        }));
+      } catch (_) {}
+      updateSheetCacheUi();
+    }
+
+    function loadAllModeSelectionCache() {
+      if (!isAllMode()) return false;
+      try {
+        const raw = localStorage.getItem(allModeSelectionCacheKey());
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!isSheetCacheValid(parsed)) {
+          localStorage.removeItem(allModeSelectionCacheKey());
+          return false;
+        }
+        getStoreForMode(ALL_MODE).selected = new Set(
+          Array.isArray(parsed.selected) ? parsed.selected.map(String) : []
+        );
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function clearAllModeSelectionCache() {
+      try {
+        localStorage.removeItem(allModeSelectionCacheKey());
+      } catch (_) {}
+    }
+
+    function saveSheetImportCache(mode, options = {}) {
+      const id = mode || getActiveMode();
+      if (isAllMode(id)) return;
+      const store = getStoreForMode(id);
+      const prev = readSheetCache(id);
+      const preserveImportedAt = options.preserveImportedAt !== false && !options.freshImport && isSheetCacheValid(prev);
+      const payload = {
+        importedAt: preserveImportedAt ? prev.importedAt : Date.now(),
+        scheduleData: store.scheduleData,
+        vehicles: store.vehicles,
+        depots: store.depots,
+        startLocations: store.startLocations,
+        selected: Array.from(store.selected),
+        selectedVehicleIds: Array.from(store.selectedVehicleIds)
+      };
+      try {
+        localStorage.setItem(sheetCacheStorageKey(id), JSON.stringify(payload));
+        markSheetSynced(id);
+      } catch (_) {}
+      updateSheetCacheUi();
+    }
+
+    function loadSheetImportCache(mode) {
+      const id = mode || getActiveMode();
+      if (isAllMode(id)) return false;
+      const cache = readSheetCache(id);
+      if (!isSheetCacheValid(cache)) {
+        if (cache) clearSheetImportCache(id);
+        return false;
+      }
+      applySheetCacheToStore(id, cache);
+      markSheetSynced(id);
+      return true;
+    }
+
+    function loadExtraOrdersOnly(mode) {
+      try {
+        const storedExtra = localStorage.getItem(storageKey('extraOrders', mode));
+        if (storedExtra) {
+          getStoreForMode(mode).extraOrders = normalizeExtraOrdersStructure(JSON.parse(storedExtra));
+        }
+      } catch (_) {}
+    }
+
+    function loadLegacyReferenceData(mode) {
+      const store = getStoreForMode(mode);
+      let loaded = false;
+      try {
+        const storedVehicles = localStorage.getItem(storageKey('vehicles', mode));
+        const storedDepots = localStorage.getItem(storageKey('depots', mode));
+        const storedStart = localStorage.getItem(storageKey('startLocations', mode));
+        if (storedVehicles) {
+          const parsed = JSON.parse(storedVehicles);
+          if (Array.isArray(parsed)) {
+            store.vehicles = parsed.map((item) => normalizeVehicleRecord(item)).filter(Boolean);
+            loaded = loaded || store.vehicles.length > 0;
+          }
+        }
+        if (storedDepots) {
+          const parsed = JSON.parse(storedDepots);
+          if (Array.isArray(parsed)) {
+            store.depots = parsed.map((item) => normalizeDepotRecord(item)).filter(Boolean);
+            loaded = loaded || store.depots.length > 0;
+          }
+        }
+        if (storedStart) {
+          const parsed = JSON.parse(storedStart);
+          if (Array.isArray(parsed)) {
+            store.startLocations = parsed.map((item) => normalizeStartRecord(item)).filter(Boolean);
+            loaded = loaded || store.startLocations.length > 0;
+          }
+        }
+        const storedVehicleSelection = localStorage.getItem(storageKey('selectedVehicleIds', mode));
+        if (storedVehicleSelection) {
+          const parsed = JSON.parse(storedVehicleSelection);
+          if (Array.isArray(parsed)) {
+            store.selectedVehicleIds = new Set(parsed.map((id) => String(id)));
+          }
+        }
+      } catch (_) {}
+      pruneVehicleSelection();
+      return loaded;
+    }
+
+    function persistActiveSheetCacheSelection() {
+      if (isAllMode()) {
+        persistAllModeSelectionCache();
+        return;
+      }
+      if (hasValidSheetCache(getActiveMode())) {
+        saveSheetImportCache(getActiveMode(), { preserveImportedAt: true });
+      }
+    }
+
+    function formatSheetCacheAge(importedAt) {
+      const minutes = Math.floor((Date.now() - importedAt) / 60000);
+      if (minutes <= 0) return 'только что';
+      if (minutes === 1) return '1 мин назад';
+      if (minutes < 60) return `${minutes} мин назад`;
+      const hours = Math.floor(minutes / 60);
+      const rem = minutes % 60;
+      if (rem === 0) return `${hours} ч назад`;
+      return `${hours} ч ${rem} мин назад`;
+    }
+
+    function formatSheetCacheRemaining(importedAt) {
+      const remainingMs = getSheetCacheTtlMs() - (Date.now() - importedAt);
+      if (remainingMs <= 0) return '';
+      const minutes = Math.ceil(remainingMs / 60000);
+      if (minutes <= 1) return ' · осталось <1 мин';
+      return ` · ещё ~${minutes} мин`;
+    }
+
+    function getSheetCacheUiMeta() {
+      if (isAllMode()) {
+        const entries = SOURCE_MODE_IDS.map((modeId) => {
+          const importedAt = getSheetCacheImportedAt(modeId);
+          if (!importedAt) return null;
+          return `${getModeConfig(modeId).label}: ${formatSheetCacheAge(importedAt)}`;
+        }).filter(Boolean);
+        if (!entries.length) return null;
+        const importedAt = Math.min(...SOURCE_MODE_IDS.map(getSheetCacheImportedAt).filter(Boolean));
+        return {
+          importedAt,
+          text: `Локальная копия таблицы · ${entries.join(' · ')}${formatSheetCacheRemaining(importedAt)}`
+        };
+      }
+      const importedAt = getSheetCacheImportedAt(getActiveMode());
+      if (!importedAt) return null;
+      return {
+        importedAt,
+        text: `Локальная копия таблицы · ${formatSheetCacheAge(importedAt)}${formatSheetCacheRemaining(importedAt)}`
+      };
+    }
+
+    function updateLoadSheetButtonCacheHint(meta) {
+      const btn = dom.loadSheetBtn;
+      if (!btn) return;
+      let sub = btn.querySelector('.btn-action__sub');
+      if (!meta) {
+        sub?.remove();
+        btn.classList.remove('btn-action--cached', 'sheet-cache-stale');
+        btn.removeAttribute('data-cache-age');
+        return;
+      }
+      if (!sub) {
+        sub = document.createElement('span');
+        sub.className = 'btn-action__sub';
+        btn.appendChild(sub);
+      }
+      const ageText = formatSheetCacheAge(meta.importedAt);
+      sub.textContent = ageText;
+      btn.classList.add('btn-action--cached');
+      btn.dataset.cacheAge = ageText;
+      const stale = Date.now() - meta.importedAt >= getSheetCacheTtlMs() * 0.66;
+      btn.classList.toggle('sheet-cache-stale', stale);
+    }
+
+    function updateSheetCacheUi() {
+      const meta = getSheetCacheUiMeta();
+      if (dom.sheetCacheStatus) {
+        if (!meta) {
+          dom.sheetCacheStatus.hidden = true;
+          dom.sheetCacheStatus.textContent = '';
+          dom.sheetCacheStatus.classList.remove('sheet-cache-status--stale');
+        } else {
+          dom.sheetCacheStatus.hidden = false;
+          dom.sheetCacheStatus.textContent = meta.text;
+          dom.sheetCacheStatus.classList.toggle(
+            'sheet-cache-status--stale',
+            Date.now() - meta.importedAt >= getSheetCacheTtlMs() * 0.66
+          );
+        }
+      }
+      if (dom.loadSheetBtn && !dom.loadSheetBtn.classList.contains('btn-action--loading')) {
+        dom.loadSheetBtn.title = meta
+          ? `${meta.text}. Нажмите, чтобы загрузить свежие данные из Google Sheets.`
+          : 'Загрузить расписание и справочники из Google Sheets';
+        updateLoadSheetButtonCacheHint(meta);
+      }
+    }
+
+    function handleSheetCacheExpired(modeId) {
+      clearSheetImportCache(modeId);
+      clearAllModeSelectionCache();
+      try {
+        localStorage.removeItem(sheetSyncedStorageKey(modeId));
+      } catch (_) {}
+      loadExtraOrdersOnly(modeId);
+      if (modeStartsEmptyUntilSync(modeId)) {
+        resetModeStore(modeId);
+        loadExtraOrdersOnly(modeId);
+        getStoreForMode(modeId).scheduleData = createEmptySchedule();
+        getStoreForMode(modeId).selected = new Set();
+      } else {
+        loadLegacyReferenceData(modeId);
+        getStoreForMode(modeId).scheduleData = createEmptySchedule();
+        getStoreForMode(modeId).selected = new Set();
+      }
+      if (getActiveMode() === modeId || isAllMode()) {
+        showNotify(
+          `Локальная копия «${getModeConfig(modeId).label}» устарела — обновите данные из Google Sheets.`,
+          'info',
+          8000
+        );
+        refreshModeUiAfterDataChange();
+      }
+    }
+
+    function expireStaleSheetCaches() {
+      SOURCE_MODE_IDS.forEach((modeId) => {
+        const cache = readSheetCache(modeId);
+        if (!cache || isSheetCacheValid(cache)) return;
+        handleSheetCacheExpired(modeId);
+      });
+    }
+
+    function startSheetCacheUiTimer() {
+      if (sheetCacheUiTimer) clearInterval(sheetCacheUiTimer);
+      sheetCacheUiTimer = setInterval(() => {
+        expireStaleSheetCaches();
+        updateSheetCacheUi();
+      }, 30000);
+    }
+
     function hasSheetSynced(mode) {
       const id = mode || getActiveMode();
       try {
@@ -698,13 +1037,20 @@
       return cfg.startsEmptyUntilSheetSync === true;
     }
 
+    function hasLoadedSheetDataForMode(mode) {
+      const store = getStoreForMode(mode);
+      if ((store.startLocations || []).length > 0) return true;
+      if ((store.vehicles || []).length > 0) return true;
+      return DAY_KEYS.some((day) => (store.scheduleData[day] || []).length > 0);
+    }
+
     function shouldLoadPersistedForMode(mode) {
       const id = mode || getActiveMode();
       if (isAllMode(id)) {
         return SOURCE_MODE_IDS.some((sourceId) => shouldLoadPersistedForMode(sourceId));
       }
       if (!modeStartsEmptyUntilSync(id)) return true;
-      return hasSheetSynced(id);
+      return hasValidSheetCache(id) || hasLoadedSheetDataForMode(id);
     }
 
     function resetModeStore(mode) {
@@ -722,15 +1068,28 @@
       try {
         localStorage.removeItem(sheetSyncedStorageKey(id));
       } catch (_) {}
+      clearSheetImportCache(id);
     }
 
     function ensureEmptyModeUntilSheetSync(mode) {
       if (isAllMode(mode)) return;
       if (!modeStartsEmptyUntilSync(mode)) return;
-      if (hasSheetSynced(mode)) return;
-      clearModePersistedData(mode);
+      if (hasValidSheetCache(mode)) return;
+      if (hasLoadedSheetDataForMode(mode)) return;
+      loadExtraOrdersOnly(mode);
+      const extraOrders = getStoreForMode(mode).extraOrders;
+      clearSheetImportCache(mode);
+      ['vehicles', 'depots', 'startLocations', 'selectedVehicleIds'].forEach((suffix) => {
+        try {
+          localStorage.removeItem(`${suffix}_${mode}`);
+        } catch (_) {}
+      });
+      try {
+        localStorage.removeItem(sheetSyncedStorageKey(mode));
+      } catch (_) {}
       resetModeStore(mode);
-      setScheduleData(createEmptySchedule());
+      getStoreForMode(mode).extraOrders = extraOrders || createEmptyExtraOrders();
+      getStoreForMode(mode).scheduleData = createEmptySchedule();
       if (getActiveMode() === mode) {
         state.selected.clear();
         state.query = '';
@@ -936,6 +1295,7 @@
       startAddBtn: document.getElementById('startAdd'),
       startClearBtn: document.getElementById('startClear'),
       loadSheetBtn: document.getElementById('loadSheet'),
+      sheetCacheStatus: document.getElementById('sheetCacheStatus'),
       vehAddBtn: document.getElementById('vehAdd'),
       vehClearBtn: document.getElementById('vehClear'),
       depAddBtn: document.getElementById('depAdd'),
@@ -1090,6 +1450,9 @@
           storageKey('selectedVehicleIds', mode),
           JSON.stringify(Array.from(store.selectedVehicleIds))
         );
+        if (hasValidSheetCache(mode)) {
+          saveSheetImportCache(mode, { preserveImportedAt: true });
+        }
         try {
           window.name = JSON.stringify({
             mode,
@@ -1113,84 +1476,52 @@
     function loadLocal() {
       const mode = getActiveMode();
       if (isAllMode(mode)) {
-        try {
-          const storedExtra = localStorage.getItem(storageKey('extraOrders', ALL_MODE));
-          if (storedExtra) {
-            getStoreForMode(ALL_MODE).extraOrders = normalizeExtraOrdersStructure(JSON.parse(storedExtra));
-          }
-        } catch (_) {}
+        loadExtraOrdersOnly(ALL_MODE);
+        loadAllModeSelectionCache();
+        updateSheetCacheUi();
         return;
       }
+
+      loadExtraOrdersOnly(mode);
+
+      if (loadSheetImportCache(mode)) {
+        const status = document.getElementById('saveStatus');
+        if (status) {
+          status.textContent = 'Данные восстановлены';
+          setTimeout(() => { status.textContent = ''; }, 2000);
+        }
+        updateSheetCacheUi();
+        return;
+      }
+
       if (!shouldLoadPersistedForMode(mode)) {
         return;
       }
-      const store = getStoreForMode(mode);
-      let loaded = false;
-      try {
-        const storedVehicles = localStorage.getItem(storageKey('vehicles', mode));
-        const storedDepots = localStorage.getItem(storageKey('depots', mode));
-        const storedStart = localStorage.getItem(storageKey('startLocations', mode));
-        if (storedVehicles) {
-          const parsed = JSON.parse(storedVehicles);
-          if (Array.isArray(parsed)) {
-            store.vehicles = parsed.map((item) => normalizeVehicleRecord(item)).filter(Boolean);
-            loaded = loaded || store.vehicles.length > 0;
-          }
-        }
-        if (storedDepots) {
-          const parsed = JSON.parse(storedDepots);
-          if (Array.isArray(parsed)) {
-            store.depots = parsed.map((item) => normalizeDepotRecord(item)).filter(Boolean);
-            loaded = loaded || store.depots.length > 0;
-          }
-        }
-        if (storedStart) {
-          const parsed = JSON.parse(storedStart);
-          if (Array.isArray(parsed)) {
-            store.startLocations = parsed.map((item) => normalizeStartRecord(item)).filter(Boolean);
-            loaded = loaded || store.startLocations.length > 0;
-          }
-        }
-        const storedExtra = localStorage.getItem(storageKey('extraOrders', mode));
-        if (storedExtra) {
-          try {
-            store.extraOrders = normalizeExtraOrdersStructure(JSON.parse(storedExtra));
-            loaded = loaded || DAY_KEYS.some((day) => (store.extraOrders[day] || []).length > 0);
-          } catch (_) {}
-        }
-        const storedVehicleSelection = localStorage.getItem(storageKey('selectedVehicleIds', mode));
-        if (storedVehicleSelection) {
-          const parsed = JSON.parse(storedVehicleSelection);
-          if (Array.isArray(parsed)) {
-            store.selectedVehicleIds = new Set(parsed.map((id) => String(id)));
-          }
-        }
-      } catch (_) {}
-      pruneVehicleSelection();
+
+      const loaded = loadLegacyReferenceData(mode);
+      loadExtraOrdersOnly(mode);
       if (!loaded) {
         try {
           const stash = JSON.parse(window.name || '{}');
           if (stash.mode === getActiveMode() || !stash.mode) {
             if (Array.isArray(stash.vehicles)) {
               dataStore.vehicles = stash.vehicles.map((item) => normalizeVehicleRecord(item)).filter(Boolean);
-              loaded = loaded || dataStore.vehicles.length > 0;
             }
             if (Array.isArray(stash.depots)) {
               dataStore.depots = stash.depots.map((item) => normalizeDepotRecord(item)).filter(Boolean);
-              loaded = loaded || dataStore.depots.length > 0;
             }
             if (Array.isArray(stash.startLocations)) {
               dataStore.startLocations = stash.startLocations.map((item) => normalizeStartRecord(item)).filter(Boolean);
-              loaded = loaded || dataStore.startLocations.length > 0;
             }
           }
         } catch (_) {}
       }
       const status = document.getElementById('saveStatus');
-      if (status) {
-        status.textContent = loaded ? 'Настройки загружены' : 'Нет сохранённых настроек';
+      if (status && loaded) {
+        status.textContent = 'Настройки загружены';
         setTimeout(() => { status.textContent = ''; }, 2000);
       }
+      updateSheetCacheUi();
     }
 
     function boolFrom(v) {
@@ -1810,6 +2141,7 @@
       orders.splice(idx, 1);
       state.selected.delete(extraOrderUid(day, id, mode));
       saveLocal();
+      persistActiveSheetCacheSelection();
       render();
     }
 
@@ -2499,6 +2831,7 @@
         state.selected.add(extraOrderUid(day, record.id));
       });
       saveLocal();
+      persistActiveSheetCacheSelection();
       closeExtraOrderModal();
       if (submitBtn) submitBtn.disabled = false;
       render();
@@ -2636,6 +2969,7 @@
       if (shouldLoadPersistedForMode(getActiveMode())) {
         applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: true });
       }
+      persistActiveSheetCacheSelection();
       updateSelectedCount();
       state.lastIndexByDay[day] = undefined;
       dom.storesSection?.classList.add('is-day-switching');
@@ -2888,6 +3222,7 @@
             else state.selected.delete(uid);
             updateSelectedCount();
             updateSelectedHighlight();
+            persistActiveSheetCacheSelection();
             return;
           }
           const sourceMode = rowEl && rowEl.dataset.sourceMode ? rowEl.dataset.sourceMode : '';
@@ -2899,6 +3234,7 @@
             else state.selected.delete(uid);
             updateSelectedCount();
             updateSelectedHighlight();
+            persistActiveSheetCacheSelection();
           } else if (isAllMode() && sourceMode) {
             if (checkbox.checked) {
               applyAutoStartSelectionForSource(sourceMode, {
@@ -2916,6 +3252,7 @@
             }
             render();
             renderVehicles();
+            persistActiveSheetCacheSelection();
           } else {
             if (checkbox.checked) {
               applyAutoStartSelection({
@@ -2933,6 +3270,7 @@
             }
             render();
             renderVehicles();
+            persistActiveSheetCacheSelection();
           }
           return;
         }
@@ -2940,6 +3278,7 @@
         else state.selected.delete(uid);
         updateSelectedCount();
         updateSelectedHighlight();
+        persistActiveSheetCacheSelection();
       });
 
       updateSelectedCount();
@@ -2964,6 +3303,7 @@
       if (shouldLoadPersistedForMode(getActiveMode())) {
         applyAutoStartSelection({ dayKey: state.activeDay, resetSelection: false, selectDefaultExtra: false });
       }
+      persistActiveSheetCacheSelection();
       render();
     }
 
@@ -3268,12 +3608,15 @@
           state.selected.clear();
           state.query = '';
           applyAutoStartSelection({ resetSelection: true, dayKey: state.activeDay, selectDefaultExtra: true });
+          modesToLoad.forEach((sourceMode) => saveSheetImportCache(sourceMode, { freshImport: true }));
+          persistAllModeSelectionCache();
           refreshModeUiAfterDataChange();
         } else {
           rebuildVehicleSelectionAfterLoad();
           state.selected.clear();
           state.query = '';
           applyAutoStartSelection({ resetSelection: true, dayKey: state.activeDay, selectDefaultExtra: true });
+          modesToLoad.forEach((sourceMode) => saveSheetImportCache(sourceMode, { freshImport: true }));
           render();
           renderVehicles();
           renderDepots();
@@ -3914,6 +4257,7 @@
           dom.dataSourceLabel.textContent = `Источник: ${config.label}`;
         }
       }
+      updateSheetCacheUi();
     }
 
     function setActiveBusinessMode(mode) {
@@ -4119,6 +4463,7 @@
       }
       migrateLegacyLocalStorage();
       migrateHorecaStaleCache();
+      expireStaleSheetCaches();
       try {
         const savedMode = localStorage.getItem('activeMode');
         if (savedMode && MODE_CONFIG[savedMode]) {
@@ -4153,6 +4498,8 @@
       refreshModeUiAfterDataChange();
       initSheetOnboarding();
       initExtraOrderModal();
+      startSheetCacheUiTimer();
+      updateSheetCacheUi();
       window.app = {
         state,
         dataStore,
