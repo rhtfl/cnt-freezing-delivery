@@ -929,21 +929,27 @@
     function updateLoadSheetButtonCacheHint(meta) {
       const btn = dom.loadSheetBtn;
       if (!btn) return;
-      let sub = btn.querySelector('.btn-action__sub');
-      if (!meta) {
-        sub?.remove();
-        btn.classList.remove('btn-action--cached', 'sheet-cache-stale');
-        btn.removeAttribute('data-cache-age');
+      const sub = btn.querySelector('.btn-action__sub');
+      const isLoading = btn.classList.contains('btn-action--loading');
+      const isSuccess = btn.classList.contains('btn-action--success');
+      if (!meta || isLoading || isSuccess) {
+        if (sub) {
+          sub.textContent = '';
+          sub.hidden = true;
+        }
+        btn.classList.remove('btn-action--with-age');
+        if (!meta) {
+          btn.classList.remove('sheet-cache-stale');
+          btn.removeAttribute('data-cache-age');
+        }
         return;
       }
-      if (!sub) {
-        sub = document.createElement('span');
-        sub.className = 'btn-action__sub';
-        btn.appendChild(sub);
-      }
       const ageText = formatSheetCacheAge(meta.importedAt);
-      sub.textContent = ageText;
-      btn.classList.add('btn-action--cached');
+      if (sub) {
+        sub.textContent = ageText;
+        sub.hidden = false;
+      }
+      btn.classList.add('btn-action--with-age');
       btn.dataset.cacheAge = ageText;
       const stale = Date.now() - meta.importedAt >= getSheetCacheTtlMs() * 0.66;
       btn.classList.toggle('sheet-cache-stale', stale);
@@ -955,12 +961,12 @@
         if (!meta) {
           dom.sheetCacheStatus.hidden = true;
           dom.sheetCacheStatus.textContent = '';
-          dom.sheetCacheStatus.classList.remove('sheet-cache-status--stale');
+          dom.sheetCacheStatus.classList.remove('data-source__cache-status--stale');
         } else {
           dom.sheetCacheStatus.hidden = false;
           dom.sheetCacheStatus.textContent = meta.text;
           dom.sheetCacheStatus.classList.toggle(
-            'sheet-cache-status--stale',
+            'data-source__cache-status--stale',
             Date.now() - meta.importedAt >= getSheetCacheTtlMs() * 0.66
           );
         }
@@ -1295,6 +1301,7 @@
       startAddBtn: document.getElementById('startAdd'),
       startClearBtn: document.getElementById('startClear'),
       loadSheetBtn: document.getElementById('loadSheet'),
+      yandexPlanningLink: document.getElementById('yandexPlanningLink'),
       sheetCacheStatus: document.getElementById('sheetCacheStatus'),
       vehAddBtn: document.getElementById('vehAdd'),
       vehClearBtn: document.getElementById('vehClear'),
@@ -1563,6 +1570,9 @@
           <span class="btn-action__label">${escapeHtml(label)}</span>
         `;
         btn.dataset.defaultLabel = label;
+      } else if (!btn.dataset.defaultLabel) {
+        const labelEl = btn.querySelector('.btn-action__label');
+        if (labelEl) btn.dataset.defaultLabel = labelEl.textContent.trim();
       }
       return btn;
     }
@@ -1578,6 +1588,9 @@
         btn.disabled = true;
         btn.classList.add('btn-action--loading');
         btn.setAttribute('aria-busy', 'true');
+        const loadingSub = btn.querySelector('.btn-action__sub');
+        if (loadingSub) loadingSub.hidden = true;
+        btn.classList.remove('btn-action--with-age');
         if (labelEl) labelEl.textContent = options.loadingText || 'Загрузка…';
         return;
       }
@@ -1585,11 +1598,15 @@
       if (state === 'success') {
         btn.disabled = false;
         btn.classList.add('btn-action--success');
+        const successSub = btn.querySelector('.btn-action__sub');
+        if (successSub) successSub.hidden = true;
+        btn.classList.remove('btn-action--with-age');
         if (labelEl) labelEl.textContent = options.successText || 'Готово';
         return;
       }
       btn.disabled = options.disabled === true;
       if (labelEl) labelEl.textContent = options.label || defaultLabel;
+      if (btn.id === 'loadSheet') updateSheetCacheUi();
     }
 
     function setSyncingUi(syncing) {
@@ -1647,6 +1664,7 @@
         if (startId) li.dataset.startId = startId;
       }
       if (row.__sourceMode) li.dataset.sourceMode = row.__sourceMode;
+      if (state.selected.has(row.uid)) li.classList.add('selected');
 
       const hasCoords = row.lat != null && row.lng != null;
       const addrHtml = row.address
@@ -1734,6 +1752,7 @@
       const sentinel = listEl.querySelector('.stores-lazy-sentinel');
       if (sentinel) sentinel.remove();
       listEl.appendChild(frag);
+      syncSelectionUiFromState();
       if (end < items.length) mountStoreLazySentinel(listEl, items, day, end, token);
       return end;
     }
@@ -1775,46 +1794,132 @@
       });
     }
 
-    function updateSelectedCount() {
-      const counter = document.getElementById('selectedCount');
-      if (!counter) return;
+    function syncSelectionUiFromState() {
+      document.querySelectorAll('.store input[type="checkbox"][data-uid]').forEach((checkbox) => {
+        const uid = checkbox.dataset.uid;
+        const checked = state.selected.has(uid);
+        checkbox.checked = checked;
+        const row = checkbox.closest('.store');
+        if (row) row.classList.toggle('selected', checked);
+      });
+      updateSelectedCount();
+    }
 
-      if (isAllMode()) {
-        let visibleCount = 0;
-        state.selected.forEach((uid) => {
-          if (typeof uid !== 'string') return;
-          if (isStartSelectionUid(uid)) return;
-          visibleCount += 1;
-        });
-        counter.textContent = `Выбрано: ${visibleCount}`;
-        updateExportButtonState();
-        return;
+    function selectionUidBelongsToDay(uid, day) {
+      if (!uid || typeof uid !== 'string' || !day) return false;
+      if (uid.startsWith('start::') || uid.startsWith('shared::start::') || uid.includes('::start::')) {
+        return true;
       }
+      if (uid.startsWith(`${day}::`)) return true;
+      if (uid.startsWith(`extra::${day}::`)) return true;
+      if (uid.includes(`::order::${day}::`)) return true;
+      if (uid.includes(`::extra::${day}::`)) return true;
+      return false;
+    }
 
-      // Считаем выбранные точки, исключая три специальные стартовые:
-      // 1111 (ИМ Восток), 1110 (ИМ Центр), 1114 (Дом).
-      const rules = getModeRules();
-      const excludedStartIds = new Set([
+    function scheduleOrderIndexFromUid(uid, day) {
+      if (!uid || typeof uid !== 'string' || !day) return null;
+      const allMatch = uid.match(new RegExp(`^\\w+::order::${day}::(\\d+)::`));
+      if (allMatch) return Number(allMatch[1]);
+      const singleMatch = uid.match(new RegExp(`^${day}::(\\d+)::`));
+      if (singleMatch) return Number(singleMatch[1]);
+      return null;
+    }
+
+    function scheduleOrderSourceFromUid(uid) {
+      if (!uid || typeof uid !== 'string') return '';
+      const match = uid.match(/^(\w+)::order::/);
+      return match ? match[1] : '';
+    }
+
+    function reconcileSelectionForActiveDay() {
+      const day = state.activeDay;
+      const items = buildDayListItems(day);
+      const validUids = new Set(items.map((item) => item.uid));
+      const indexToCurrentUid = new Map();
+      items.forEach((item) => {
+        if (item.__isStart || item.__isExtra) return;
+        const idx = scheduleOrderIndexFromUid(item.uid, day);
+        if (idx == null || !Number.isFinite(idx)) return;
+        const source = item.__sourceMode || scheduleOrderSourceFromUid(item.uid);
+        const key = source ? `${source}::${day}::${idx}` : `${day}::${idx}`;
+        indexToCurrentUid.set(key, item.uid);
+      });
+
+      const additions = [];
+      const removals = [];
+      state.selected.forEach((uid) => {
+        if (validUids.has(uid)) return;
+        if (!selectionUidBelongsToDay(uid, day)) return;
+        const idx = scheduleOrderIndexFromUid(uid, day);
+        if (idx == null) return;
+        const source = scheduleOrderSourceFromUid(uid);
+        const key = source ? `${source}::${day}::${idx}` : `${day}::${idx}`;
+        const replacement = indexToCurrentUid.get(key);
+        if (replacement) {
+          removals.push(uid);
+          additions.push(replacement);
+        }
+      });
+      removals.forEach((uid) => state.selected.delete(uid));
+      additions.forEach((uid) => state.selected.add(uid));
+    }
+
+    function shouldCountUidInSelectionBadge(uid) {
+      const day = state.activeDay;
+      if (typeof uid !== 'string') return false;
+      if (isAllMode()) {
+        if (isStartSelectionUid(uid)) return false;
+        return selectionUidBelongsToDay(uid, day);
+      }
+      const excludedStartIds = getAutoManagedStartIds(null);
+      if (uid.startsWith('start::')) {
+        const idx = Number(uid.split('::')[1]);
+        if (!Number.isFinite(idx)) return false;
+        const item = (dataStore.startLocations || [])[idx];
+        const idValue = normalizeStartId(item && item.id);
+        if (!idValue || excludedStartIds.has(idValue)) return false;
+        return true;
+      }
+      if (isStartSelectionUid(uid)) return false;
+      return selectionUidBelongsToDay(uid, day);
+    }
+
+    function getInitialActiveDay() {
+      try {
+        const saved = localStorage.getItem('activeDay');
+        if (saved && DAY_KEYS.includes(saved)) return saved;
+      } catch (_) {}
+      const jsDay = new Date().getDay();
+      const mapJsToCanon = { 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday', 0: 'sunday' };
+      return mapJsToCanon[jsDay] || 'monday';
+    }
+
+    function getAutoManagedStartIds(sourceMode) {
+      const rules = sourceMode && MODE_CONFIG[sourceMode]
+        ? getModeConfig(sourceMode).rules
+        : getModeRules();
+      return new Set([
         normalizeStartId(rules.priorityStartLocationId),
         normalizeStartId(rules.defaultStartLocationId),
         normalizeStartId(rules.defaultExtraStartId)
       ].filter(Boolean));
+    }
+
+    function isAutoManagedStartItem(item) {
+      if (!item || !item.__isStart) return false;
+      const ids = getAutoManagedStartIds(item.__sourceMode || null);
+      const idValue = normalizeStartId(item.id);
+      return Boolean(idValue && ids.has(idValue));
+    }
+
+    function updateSelectedCount() {
+      const counter = document.getElementById('selectedCount');
+      if (!counter) return;
 
       let visibleCount = 0;
-      const startRows = dataStore.startLocations || [];
-
       state.selected.forEach((uid) => {
-        if (typeof uid !== 'string') return;
-        if (uid.startsWith('start::')) {
-          const idx = Number(uid.split('::')[1]);
-          if (!Number.isFinite(idx)) return;
-          const item = startRows[idx];
-          const idValue = normalizeStartId(item && item.id);
-          if (!idValue || excludedStartIds.has(idValue)) return;
-          visibleCount += 1;
-        } else {
-          visibleCount += 1;
-        }
+        if (shouldCountUidInSelectionBadge(uid)) visibleCount += 1;
       });
 
       counter.textContent = `Выбрано: ${visibleCount}`;
@@ -2958,24 +3063,34 @@
     }
 
     // ===== Рендер =====
-    function setActiveDay(day) {
+    function setActiveDay(day, options = {}) {
       state.activeDay = day;
+      try {
+        localStorage.setItem('activeDay', day);
+      } catch (_) {}
       dom.tabs.forEach((btn) => {
         const active = btn.dataset.day === day;
         btn.classList.toggle('active', active);
         btn.setAttribute('aria-selected', active ? 'true' : 'false');
       });
-      state.selected.clear();
-      if (shouldLoadPersistedForMode(getActiveMode())) {
-        applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: true });
+      if (!options.preserveSelection) {
+        state.selected.clear();
+        if (shouldLoadPersistedForMode(getActiveMode())) {
+          applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: true });
+        }
+        persistActiveSheetCacheSelection();
+      } else {
+        reconcileSelectionForActiveDay();
+        if (shouldLoadPersistedForMode(getActiveMode())) {
+          applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: true });
+        }
       }
-      persistActiveSheetCacheSelection();
       updateSelectedCount();
       state.lastIndexByDay[day] = undefined;
-      dom.storesSection?.classList.add('is-day-switching');
+      const scrollY = window.scrollY;
       render();
       requestAnimationFrame(() => {
-        dom.storesSection?.classList.remove('is-day-switching');
+        window.scrollTo(0, scrollY);
       });
       renderVehicles();
     }
@@ -3004,12 +3119,7 @@
 
       const totalVisible = list.reduce((acc, item) => {
         if (item && item.__isStart) {
-          const rules = item.__sourceMode ? getModeConfig(item.__sourceMode).rules : getModeRules();
-          const excludedStartIds = new Set([
-            normalizeStartId(rules.priorityStartLocationId),
-            normalizeStartId(rules.defaultStartLocationId),
-            normalizeStartId(rules.defaultExtraStartId)
-          ].filter(Boolean));
+          const excludedStartIds = getAutoManagedStartIds(item.__sourceMode || null);
           const idValue = normalizeStartId(item.id);
           if (!idValue || excludedStartIds.has(idValue)) return acc;
         }
@@ -3094,7 +3204,6 @@
 
       if (!list.length) {
         updateSelectedCount();
-        updateSelectedHighlight();
         return;
       }
 
@@ -3250,7 +3359,7 @@
                 selectDefaultExtra: false
               });
             }
-            render();
+            syncSelectionUiFromState();
             renderVehicles();
             persistActiveSheetCacheSelection();
           } else {
@@ -3268,7 +3377,7 @@
                 selectDefaultExtra: false
               });
             }
-            render();
+            syncSelectionUiFromState();
             renderVehicles();
             persistActiveSheetCacheSelection();
           }
@@ -3282,7 +3391,7 @@
       });
 
       updateSelectedCount();
-      updateSelectedHighlight();
+      syncSelectionUiFromState();
     }
 
     function bulkSelect(selectAll) {
@@ -3297,11 +3406,15 @@
           )
         : combined;
       filtered.forEach((item) => {
-        if (selectAll) state.selected.add(item.uid);
-        else state.selected.delete(item.uid);
+        if (selectAll) {
+          state.selected.add(item.uid);
+          return;
+        }
+        if (isAutoManagedStartItem(item)) return;
+        state.selected.delete(item.uid);
       });
-      if (shouldLoadPersistedForMode(getActiveMode())) {
-        applyAutoStartSelection({ dayKey: state.activeDay, resetSelection: false, selectDefaultExtra: false });
+      if (!selectAll && shouldLoadPersistedForMode(getActiveMode())) {
+        applyAutoStartSelection({ dayKey: state.activeDay, resetSelection: false, selectDefaultExtra: true });
       }
       persistActiveSheetCacheSelection();
       render();
@@ -3635,7 +3748,10 @@
             ? 'Расписание и справочники загружены (HoReCa + Галереи).'
             : `Данные «${getModeConfig(modesToLoad[0]).label}» обновлены.`;
           showNotify(notifyText, 'success');
-          setTimeout(() => setActionButtonState(btn, 'idle'), 2000);
+          setTimeout(() => {
+            setActionButtonState(btn, 'idle');
+            updateSheetCacheUi();
+          }, 2000);
         }
       }
     }
@@ -4330,6 +4446,14 @@
       dom.loadSheetBtn.addEventListener('click', () => loadFromGoogleSheets());
     }
 
+    if (dom.yandexPlanningLink) {
+      dom.yandexPlanningLink.addEventListener('click', (event) => {
+        if (!APP.yandexPlanningUrl) return;
+        event.preventDefault();
+        window.open(APP.yandexPlanningUrl, '_blank', 'noopener,noreferrer');
+      });
+    }
+
     if (dom.settingsExportBtn) dom.settingsExportBtn.addEventListener('click', exportSettings);
     if (dom.settingsImportBtn && dom.settingsImportInput) {
       dom.settingsImportBtn.addEventListener('click', () => dom.settingsImportInput.click());
@@ -4490,9 +4614,7 @@
       renderDepots();
       renderStartLocations();
       renderSchemaDocs();
-      const jsDay = new Date().getDay();
-      const mapJsToCanon = { 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday', 0: 'sunday' };
-      setActiveDay(mapJsToCanon[jsDay] || 'monday');
+      setActiveDay(getInitialActiveDay(), { preserveSelection: true });
       runSelfTestsIfEnabled();
       ensureEmptyModeUntilSheetSync(state.activeMode);
       refreshModeUiAfterDataChange();

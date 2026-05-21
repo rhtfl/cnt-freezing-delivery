@@ -38,36 +38,44 @@
     </header>
 
     <main class="layout">
-      <section class="card" id="dataSection">
-        <h2 class="section-title">Исходные данные</h2>
-        <p class="muted">
-          Синхронизируйте актуальные точки из Google Sheets. При необходимости — ручной JSON.
-          <span id="dataSourceLabel">Источник: HoReCa</span>
-        </p>
-        <div class="uploader" style="gap:12px; align-items:flex-start">
-          <div class="row" style="gap:12px; flex-wrap:wrap">
-            <button id="loadSheet" class="mini-btn btn-action" type="button">
-            <span class="btn-action__spinner" aria-hidden="true"></span>
-            <span class="btn-action__icon" aria-hidden="true"></span>
-            <span class="btn-action__label">Обновить из Google Sheets</span>
-          </button>
+      <section class="card data-source" id="dataSection">
+        <div class="data-source__header">
+          <h2 class="section-title">Исходные данные</h2>
+          <p class="data-source__desc muted">
+            Синхронизируйте актуальные точки из Google Sheets. При необходимости — ручной JSON.
+            <span id="dataSourceLabel">Источник: HoReCa</span>
+          </p>
+        </div>
+        <div class="data-source__actions">
+          <div class="data-source__actions-left">
+            <button id="loadSheet" class="mini-btn btn-action data-source__btn data-source__btn--sync" type="button">
+              <span class="btn-action__leading" aria-hidden="true">
+                <span class="btn-action__spinner"></span>
+                <span class="btn-action__icon"></span>
+              </span>
+              <span class="btn-action__content">
+                <span class="btn-action__label">Обновить из Google Sheets</span>
+                <span class="btn-action__sub" hidden></span>
+              </span>
+            </button>
             <a
               id="yandexPlanningLink"
-              class="mini-btn"
-              href="#"
+              class="mini-btn data-source__btn data-source__btn--link"
+              href="https://yandex.ru/courier/companies/31071/depots/all/mvrp/import"
               target="_blank"
-              rel="noopener"
-              style="text-decoration:none; display:flex; align-items:center; justify-content:center"
+              rel="noopener noreferrer"
             >Создать новое планирование</a>
+            <p id="sheetCacheStatus" class="data-source__cache-status muted" hidden aria-live="polite"></p>
           </div>
-          <p id="sheetCacheStatus" class="sheet-cache-status muted" hidden aria-live="polite"></p>
-          <details class="json-import">
-            <summary class="mini-btn" style="list-style:none; display:inline-flex">Импортировать JSON вручную</summary>
-            <div class="row" style="margin-top:10px; gap:8px; flex-wrap:wrap">
-              <input id="jsonFile" type="file" accept="application/json" />
-              <button id="loadJson" type="button">Загрузить JSON</button>
-            </div>
-          </details>
+          <div class="data-source__actions-right">
+            <details class="json-import data-source__json">
+              <summary class="mini-btn data-source__btn">Импортировать JSON вручную</summary>
+              <div class="data-source__json-panel">
+                <input id="jsonFile" type="file" accept="application/json" />
+                <button id="loadJson" type="button">Загрузить JSON</button>
+              </div>
+            </details>
+          </div>
         </div>
       </section>
 
