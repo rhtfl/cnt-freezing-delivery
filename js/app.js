@@ -781,22 +781,36 @@
     }
 
     const EXTRA_ORDER_FORM_FIELDS = [
-      { key: 'title', label: 'Наименование клиента *', placeholder: 'например Магазин на Ленина' },
+      { key: 'title', label: 'Наименование клиента', placeholder: 'например Магазин на Ленина', required: true },
       { key: 'address', label: 'Адрес', placeholder: 'полный адрес доставки' },
-      {
-        key: 'coords_paste',
-        label: 'Координаты с карты',
-        placeholder: 'вставьте: 55.706284, 37.781865'
-      },
-      { key: 'lat', label: 'Широта *', type: 'number', step: 'any', placeholder: '55.751244' },
-      { key: 'lng', label: 'Долгота *', type: 'number', step: 'any', placeholder: '37.618423' },
-      { key: 'phone', label: 'Телефон', placeholder: '+7…' },
+      { key: 'coords_paste', label: 'Координаты с карты', placeholder: '55.706284, 37.781800' },
+      { key: 'lat', label: 'Широта', type: 'number', step: 'any', placeholder: '55.751244', required: true },
+      { key: 'lng', label: 'Долгота', type: 'number', step: 'any', placeholder: '37.618423', required: true },
       { key: 'time_window', label: 'Временное окно', placeholder: '10:00-21:00' },
       { key: 'delivery_minutes', label: 'Время обслуживания, мин', type: 'number', step: '1', placeholder: 'например 10' },
+      { key: 'phone', label: 'Телефон', placeholder: '+7 (___) ___-__-__', phoneMask: true },
       { key: 'depot_id', label: 'ID склада', placeholder: 'если нужно' },
       { key: 'depot_name', label: 'Название склада', placeholder: 'если нужно' },
       { key: 'comments', label: 'Комментарий', placeholder: 'заметка для водителя' }
     ];
+
+    let extraOrderModalScrollY = 0;
+
+    function lockPageScrollForExtraOrderModal() {
+      extraOrderModalScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      document.body.classList.add('extra-order-modal-open');
+      document.body.style.top = `-${extraOrderModalScrollY}px`;
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+    }
+
+    function unlockPageScrollForExtraOrderModal() {
+      document.body.classList.remove('extra-order-modal-open');
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, extraOrderModalScrollY);
+    }
 
     const START_LOCATIONS_FIELDS = [
       { key: 'id', label: 'ID' },
@@ -1506,6 +1520,56 @@
       try { return String(phone).trim(); } catch (_) { return ''; }
     }
 
+    function extractRuPhoneDigits(value) {
+      let digits = String(value ?? '').replace(/\D/g, '');
+      if (!digits) return '';
+      if (digits.length >= 11 && digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+      if (digits.startsWith('7')) digits = digits.slice(1);
+      return digits.slice(0, 10);
+    }
+
+    function formatRuPhoneMaskFromDigits(digits) {
+      const d = String(digits ?? '').replace(/\D/g, '').slice(0, 10);
+      if (!d.length) return '';
+      let out = `+7 (${d.slice(0, 3)}`;
+      if (d.length <= 3) return out;
+      out += `) ${d.slice(3, 6)}`;
+      if (d.length <= 6) return out;
+      out += `-${d.slice(6, 8)}`;
+      if (d.length <= 8) return out;
+      out += `-${d.slice(8, 10)}`;
+      return out;
+    }
+
+    function formatRuPhoneInputValue(value) {
+      return formatRuPhoneMaskFromDigits(extractRuPhoneDigits(value));
+    }
+
+    function handleExtraOrderPhoneInput(input) {
+      if (!input) return;
+      const prevLen = input.value.length;
+      const sel = input.selectionStart ?? prevLen;
+      const formatted = formatRuPhoneMaskFromDigits(extractRuPhoneDigits(input.value));
+      input.value = formatted;
+      if (!formatted) return;
+      let newSel = sel + (formatted.length - prevLen);
+      if (newSel < 4) newSel = formatted.length;
+      if (newSel > formatted.length) newSel = formatted.length;
+      input.setSelectionRange(newSel, newSel);
+    }
+
+    function handleExtraOrderPhoneFocus(input) {
+      if (!input || input.value.trim()) return;
+      input.value = '+7 (';
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+
+    function handleExtraOrderPhoneBlur(input) {
+      if (!input) return;
+      const digits = extractRuPhoneDigits(input.value);
+      input.value = digits.length ? formatRuPhoneMaskFromDigits(digits) : '';
+    }
+
     function formatDateForFile(date) {
       const dd = String(date.getDate()).padStart(2, '0');
       const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -1591,16 +1655,20 @@
       if (!raw || typeof raw !== 'object') return null;
       const lat = toNumOrNull(raw['point.lat'] ?? raw.lat ?? raw.latitude);
       const lon = toNumOrNull(raw['point.lon'] ?? raw.lon ?? raw.lng ?? raw.longitude);
-      const rawDuration = toNumOrNull(
-        raw.delivery_seconds ??
-        raw.service_duration_s ??
-        raw.service_seconds ??
-        raw.shared_service_duration_s ??
-        raw.shared_service_duration_minutes
-      );
-      let serviceSeconds = rawDuration;
-      if (serviceSeconds != null && serviceSeconds < 1000) {
-        serviceSeconds = serviceSeconds * 60;
+      let serviceSeconds = null;
+      if (raw.delivery_seconds != null && raw.delivery_seconds !== '') {
+        serviceSeconds = toNumOrNull(raw.delivery_seconds);
+      } else {
+        const rawDuration = toNumOrNull(
+          raw.service_duration_s ??
+          raw.service_seconds ??
+          raw.shared_service_duration_s ??
+          raw.shared_service_duration_minutes
+        );
+        serviceSeconds = rawDuration;
+        if (serviceSeconds != null && serviceSeconds < 1000) {
+          serviceSeconds = serviceSeconds * 60;
+        }
       }
       const record = {
         title: raw.title || raw.name || '',
@@ -2107,13 +2175,162 @@
       });
     }
 
-    function makeExtraOrderFormBlockHtml(blockIndex, values = {}) {
-      const fieldsHtml = EXTRA_ORDER_FORM_FIELDS.map((cfg) => {
-        const val = values[cfg.key] ?? (cfg.key === 'time_window' ? getDefaultTimeWindow() : '');
-        return makeConfigField(cfg.label, cfg.key, val, cfg);
+    function getExtraOrderFieldConfig(key) {
+      return EXTRA_ORDER_FORM_FIELDS.find((cfg) => cfg.key === key);
+    }
+
+    function makeExtraOrderField(label, key, value, options = {}) {
+      const placeholderAttr = options.placeholder ? ` placeholder="${escapeHtml(options.placeholder)}"` : '';
+      const dataAttr = `data-field="${key}"`;
+      const type = options.type === 'number' ? 'number' : 'text';
+      const stepAttr = options.step ? ` step="${options.step}"` : '';
+      let stringValue = value ?? '';
+      stringValue = stringValue === '' ? '' : String(stringValue);
+      if (options.phoneMask && stringValue) {
+        stringValue = formatRuPhoneInputValue(stringValue);
+      }
+      const requiredAttr = options.required ? ' required aria-required="true"' : '';
+      const fullClass = options.fullWidth ? ' eo-field--full' : '';
+      const phoneClass = options.phoneMask ? ' eo-input--phone' : '';
+      const inputModeAttr = options.phoneMask ? ' inputmode="tel" autocomplete="tel"' : '';
+      const maxLengthAttr = options.phoneMask ? ' maxlength="18"' : '';
+      const requiredMark = options.required ? '<span class="eo-required" aria-hidden="true">*</span>' : '';
+      return `
+        <div class="eo-field${fullClass}">
+          <label class="eo-field__label" for="eo-${key}-${options.blockIndex ?? 0}">${escapeHtml(label)}${requiredMark}</label>
+          <input
+            id="eo-${key}-${options.blockIndex ?? 0}"
+            class="eo-input${phoneClass}"
+            type="${type}"
+            ${dataAttr}${placeholderAttr}${stepAttr}${requiredAttr}${inputModeAttr}${maxLengthAttr}
+            value="${escapeHtml(stringValue)}"
+          />
+        </div>`;
+    }
+
+    function makeExtraOrderFieldHtml(key, values, blockIndex) {
+      const cfg = getExtraOrderFieldConfig(key);
+      if (!cfg) return '';
+      const val = values[cfg.key] ?? (cfg.key === 'time_window' ? getDefaultTimeWindow() : '');
+      return makeExtraOrderField(cfg.label, cfg.key, val, { ...cfg, blockIndex });
+    }
+
+    function getDepotsForExtraOrderPicker() {
+      if (isAllMode()) {
+        return getMergedUniqueDepotsWithMeta()
+          .map((entry) => ({
+            id: entry.depot && entry.depot.id != null ? String(entry.depot.id).trim() : '',
+            ref: entry.depot && entry.depot.ref != null ? String(entry.depot.ref).trim() : '',
+            sourceLabels: entry.sourceLabels || []
+          }))
+          .filter((d) => d.id);
+      }
+      return (dataStore.depots || [])
+        .map((depot) => ({
+          id: depot && depot.id != null ? String(depot.id).trim() : '',
+          ref: depot && depot.ref != null ? String(depot.ref).trim() : '',
+          sourceLabels: []
+        }))
+        .filter((d) => d.id);
+    }
+
+    function makeExtraOrderDepotPickerHtml(blockIndex, values = {}) {
+      const depots = getDepotsForExtraOrderPicker();
+      const selectedId = values.depot_id != null ? String(values.depot_id).trim() : '';
+      if (!depots.length) {
+        return '<p class="eo-depot-picker__empty eo-depot-picker__empty--inline">Склады появятся после загрузки из Google Sheets</p>';
+      }
+      const chips = depots.map((depot) => {
+        const label = depot.ref || depot.id;
+        const meta = depot.ref && depot.ref !== depot.id ? depot.id : '';
+        const source = depot.sourceLabels.length ? formatSourceLabels(depot.sourceLabels) : '';
+        const titleParts = [label, meta, source].filter(Boolean);
+        const isActive = selectedId && depot.id === selectedId;
+        return `<button
+          type="button"
+          class="eo-depot-chip${isActive ? ' eo-depot-chip--active' : ''}"
+          data-act="pick-depot"
+          data-depot-id="${escapeHtml(depot.id)}"
+          data-depot-ref="${escapeHtml(depot.ref)}"
+          title="${escapeHtml(titleParts.join(' · '))}"
+        >${escapeHtml(label)}${meta ? `<span class="eo-depot-chip__meta">${escapeHtml(meta)}</span>` : ''}</button>`;
       }).join('');
+      return `<div class="eo-depot-picker eo-depot-picker--inline" role="group" aria-label="Быстрый выбор склада">${chips}</div>`;
+    }
+
+    function applyDepotPickToBlock(block, depotId, depotRef) {
+      if (!block) return;
+      const idInput = block.querySelector('[data-field="depot_id"]');
+      const nameInput = block.querySelector('[data-field="depot_name"]');
+      if (idInput) idInput.value = depotId || '';
+      if (nameInput) nameInput.value = depotRef || '';
+      idInput?.closest('.eo-field')?.classList.remove('eo-field--error');
+      block.querySelectorAll('[data-act="pick-depot"]').forEach((chip) => {
+        chip.classList.toggle('eo-depot-chip--active', chip.dataset.depotId === depotId);
+      });
+    }
+
+    function makeExtraOrderDepotFieldHtml(values, blockIndex) {
+      const cfg = getExtraOrderFieldConfig('depot_id');
+      const val = values.depot_id ?? '';
+      const pickerHtml = makeExtraOrderDepotPickerHtml(blockIndex, values);
+      const isEmptyMsg = pickerHtml.includes('eo-depot-picker__empty');
+      return `
+        <div class="eo-field eo-field--depot">
+          <label class="eo-field__label" for="eo-depot_id-${blockIndex}">${escapeHtml(cfg.label)}</label>
+          <div class="eo-depot-inline${isEmptyMsg ? ' eo-depot-inline--empty' : ''}">
+            <input
+              id="eo-depot_id-${blockIndex}"
+              class="eo-input eo-input--depot-id"
+              type="text"
+              data-field="depot_id"
+              placeholder="${escapeHtml(cfg.placeholder || '')}"
+              value="${escapeHtml(val === '' ? '' : String(val))}"
+            />
+            ${pickerHtml}
+          </div>
+        </div>`;
+    }
+
+    function renderExtraOrderPointGrid(values, blockIndex) {
+      return `
+        <div class="eo-point-grid">
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('title', values, blockIndex)}
+            ${makeExtraOrderFieldHtml('address', values, blockIndex)}
+          </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('coords_paste', values, blockIndex)}
+            <div class="eo-coords-pair">
+              ${makeExtraOrderFieldHtml('lat', values, blockIndex)}
+              ${makeExtraOrderFieldHtml('lng', values, blockIndex)}
+            </div>
+          </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('time_window', values, blockIndex)}
+            ${makeExtraOrderFieldHtml('delivery_minutes', values, blockIndex)}
+          </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderDepotFieldHtml(values, blockIndex)}
+            ${makeExtraOrderFieldHtml('depot_name', values, blockIndex)}
+          </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('phone', values, blockIndex)}
+            ${makeExtraOrderFieldHtml('comments', values, blockIndex)}
+          </div>
+        </div>`;
+    }
+
+    function syncExtraOrderModalLayout() {
+      if (!dom.extraOrderModal || !dom.extraOrderFormBlocks) return;
+      const count = dom.extraOrderFormBlocks.querySelectorAll('.extra-order-block').length;
+      dom.extraOrderModal.classList.toggle('extra-order-modal--single', count <= 1);
+      dom.extraOrderModal.classList.toggle('extra-order-modal--multi', count > 1);
+    }
+
+    function makeExtraOrderFormBlockHtml(blockIndex, values = {}) {
       const removeBtn = blockIndex > 0
-        ? '<button type="button" class="mini-btn" data-act="remove-block">Убрать</button>'
+        ? `<button type="button" class="eo-card-remove" data-act="remove-block">Убрать</button>`
         : '';
       return `
         <div class="extra-order-block" data-block-index="${blockIndex}">
@@ -2121,8 +2338,47 @@
             <h3 class="extra-order-block__title">Точка ${blockIndex + 1}</h3>
             ${removeBtn}
           </div>
-          <div class="config-grid">${fieldsHtml}</div>
+          <div class="extra-order-block__body">
+            ${renderExtraOrderPointGrid(values, blockIndex)}
+          </div>
+          <p class="eo-coords-hint" data-coords-hint hidden>Формат: 55.706284, 37.781800 или через пробел</p>
         </div>`;
+    }
+
+    function clearExtraOrderFieldErrors() {
+      if (!dom.extraOrderFormBlocks) return;
+      dom.extraOrderFormBlocks.querySelectorAll('.eo-field--error').forEach((el) => {
+        el.classList.remove('eo-field--error');
+      });
+      dom.extraOrderFormBlocks.querySelectorAll('[data-coords-hint]').forEach((el) => {
+        el.hidden = true;
+      });
+    }
+
+    function markExtraOrderFieldError(block, fieldKey) {
+      if (!block) return;
+      const input = block.querySelector(`[data-field="${fieldKey}"]`);
+      const field = input && input.closest('.eo-field');
+      if (field) field.classList.add('eo-field--error');
+    }
+
+    function handleExtraOrderCoordsInput(block, text) {
+      if (!block) return;
+      const hint = block.querySelector('[data-coords-hint]');
+      const field = block.querySelector('[data-field="coords_paste"]')?.closest('.eo-field');
+      const trimmed = (text || '').trim();
+      if (!trimmed) {
+        if (hint) hint.hidden = true;
+        if (field) field.classList.remove('eo-field--error');
+        return;
+      }
+      if (tryApplyCoordsTextToBlock(block, trimmed)) {
+        if (hint) hint.hidden = true;
+        if (field) field.classList.remove('eo-field--error');
+      } else {
+        if (hint) hint.hidden = false;
+        if (field) field.classList.add('eo-field--error');
+      }
     }
 
     function readExtraOrderBlockValues(blockEl) {
@@ -2138,12 +2394,14 @@
     function resetExtraOrderModalForm() {
       if (!dom.extraOrderFormBlocks) return;
       dom.extraOrderFormBlocks.innerHTML = makeExtraOrderFormBlockHtml(0);
+      syncExtraOrderModalLayout();
     }
 
     function appendExtraOrderFormBlock() {
       if (!dom.extraOrderFormBlocks) return;
       const index = dom.extraOrderFormBlocks.querySelectorAll('.extra-order-block').length;
       dom.extraOrderFormBlocks.insertAdjacentHTML('beforeend', makeExtraOrderFormBlockHtml(index));
+      syncExtraOrderModalLayout();
     }
 
     function openExtraOrderModal() {
@@ -2155,11 +2413,12 @@
       clearError();
       resetExtraOrderModalForm();
       if (dom.extraOrderModalDay) {
-        dom.extraOrderModalDay.textContent = `День: ${WEEKDAY_LABELS[state.activeDay] || state.activeDay}`;
+        dom.extraOrderModalDay.textContent = WEEKDAY_LABELS[state.activeDay] || state.activeDay;
       }
       dom.extraOrderModal.hidden = false;
       dom.extraOrderModal.setAttribute('aria-hidden', 'false');
-      document.body.classList.add('extra-order-modal-open');
+      lockPageScrollForExtraOrderModal();
+      syncExtraOrderModalLayout();
       const firstInput = dom.extraOrderFormBlocks && dom.extraOrderFormBlocks.querySelector('input[data-field="title"]');
       if (firstInput) firstInput.focus();
     }
@@ -2168,11 +2427,14 @@
       if (!dom.extraOrderModal) return;
       dom.extraOrderModal.hidden = true;
       dom.extraOrderModal.setAttribute('aria-hidden', 'true');
-      document.body.classList.remove('extra-order-modal-open');
+      unlockPageScrollForExtraOrderModal();
+      if (dom.extraOrderSubmitBtn) dom.extraOrderSubmitBtn.disabled = false;
+      clearExtraOrderFieldErrors();
     }
 
     function collectExtraOrdersFromModal() {
       if (!dom.extraOrderFormBlocks) return [];
+      clearExtraOrderFieldErrors();
       const blocks = Array.from(dom.extraOrderFormBlocks.querySelectorAll('.extra-order-block'));
       const records = [];
       const errors = [];
@@ -2183,10 +2445,13 @@
         const lon = toNumOrNull(raw.lng);
         if (!title.trim()) {
           errors.push(`Точка ${blockIndex + 1}: укажите наименование.`);
+          markExtraOrderFieldError(block, 'title');
           return;
         }
         if (lat == null || lon == null) {
           errors.push(`Точка ${blockIndex + 1}: укажите широту и долготу.`);
+          markExtraOrderFieldError(block, 'lat');
+          markExtraOrderFieldError(block, 'lng');
           return;
         }
         let deliverySeconds = toNumOrNull(raw.delivery_minutes);
@@ -2220,8 +2485,13 @@
     }
 
     function submitExtraOrdersFromModal() {
+      const submitBtn = dom.extraOrderSubmitBtn;
+      if (submitBtn) submitBtn.disabled = true;
       const records = collectExtraOrdersFromModal();
-      if (!records) return;
+      if (!records) {
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
       const day = state.activeDay;
       const bucket = getExtraOrders()[day] || (getExtraOrders()[day] = []);
       records.forEach((record) => {
@@ -2230,6 +2500,7 @@
       });
       saveLocal();
       closeExtraOrderModal();
+      if (submitBtn) submitBtn.disabled = false;
       render();
     }
 
@@ -2251,6 +2522,12 @@
       }
       if (dom.extraOrderFormBlocks) {
         dom.extraOrderFormBlocks.addEventListener('click', (event) => {
+          const depotChip = event.target.closest('[data-act="pick-depot"]');
+          if (depotChip) {
+            const block = depotChip.closest('.extra-order-block');
+            applyDepotPickToBlock(block, depotChip.dataset.depotId || '', depotChip.dataset.depotRef || '');
+            return;
+          }
           const btn = event.target.closest('[data-act="remove-block"]');
           if (!btn) return;
           const block = btn.closest('.extra-order-block');
@@ -2261,9 +2538,39 @@
             const titleEl = el.querySelector('.extra-order-block__title');
             if (titleEl) titleEl.textContent = `Точка ${index + 1}`;
           });
+          syncExtraOrderModalLayout();
+        });
+
+        dom.extraOrderFormBlocks.addEventListener('input', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) {
+            handleExtraOrderPhoneInput(phoneInput);
+            phoneInput.closest('.eo-field')?.classList.remove('eo-field--error');
+            return;
+          }
+          const depotInput = event.target.closest('input[data-field="depot_id"]');
+          if (depotInput) {
+            const block = depotInput.closest('.extra-order-block');
+            const currentId = depotInput.value.trim();
+            block?.querySelectorAll('[data-act="pick-depot"]').forEach((chip) => {
+              chip.classList.toggle('eo-depot-chip--active', chip.dataset.depotId === currentId);
+            });
+          }
+          const input = event.target.closest('input[data-field="coords_paste"]');
+          if (!input) return;
+          const block = input.closest('.extra-order-block');
+          handleExtraOrderCoordsInput(block, input.value);
         });
 
         dom.extraOrderFormBlocks.addEventListener('paste', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) {
+            event.preventDefault();
+            const pasted = event.clipboardData && event.clipboardData.getData('text');
+            phoneInput.value = formatRuPhoneMaskFromDigits(extractRuPhoneDigits(pasted));
+            phoneInput.setSelectionRange(phoneInput.value.length, phoneInput.value.length);
+            return;
+          }
           const input = event.target.closest('input[data-field]');
           if (!input) return;
           const field = input.getAttribute('data-field');
@@ -2274,15 +2581,41 @@
           if (!text || !parseLatLngPair(text)) return;
           event.preventDefault();
           tryApplyCoordsTextToBlock(block, text);
+          handleExtraOrderCoordsInput(block, text);
+        });
+
+        dom.extraOrderFormBlocks.addEventListener('focusin', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) handleExtraOrderPhoneFocus(phoneInput);
+        });
+
+        dom.extraOrderFormBlocks.addEventListener('focusout', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) handleExtraOrderPhoneBlur(phoneInput);
+        });
+
+        dom.extraOrderFormBlocks.addEventListener('keydown', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (!phoneInput || event.key !== 'Backspace') return;
+          const digits = extractRuPhoneDigits(phoneInput.value);
+          if (digits.length <= 1) {
+            event.preventDefault();
+            phoneInput.value = '';
+          }
         });
 
         dom.extraOrderFormBlocks.addEventListener('blur', (event) => {
           const input = event.target.closest('input[data-field="coords_paste"]');
           if (!input) return;
           const block = input.closest('.extra-order-block');
-          if (!block || !input.value.trim()) return;
-          tryApplyCoordsTextToBlock(block, input.value);
+          handleExtraOrderCoordsInput(block, input.value);
         }, true);
+
+        dom.extraOrderFormBlocks.addEventListener('input', (event) => {
+          const input = event.target.closest('.eo-input[data-field]');
+          if (!input) return;
+          input.closest('.eo-field')?.classList.remove('eo-field--error');
+        });
       }
       document.addEventListener('keydown', (ev) => {
         if (ev.key === 'Escape' && dom.extraOrderModal && !dom.extraOrderModal.hidden) {
@@ -2301,9 +2634,7 @@
       });
       state.selected.clear();
       if (shouldLoadPersistedForMode(getActiveMode())) {
-        const defaultExtraWasSelected = isDefaultExtraSelected();
-        if (defaultExtraWasSelected) ensureDefaultExtraStartSelected();
-        applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: false });
+        applyAutoStartSelection({ dayKey: day, resetSelection: false, selectDefaultExtra: true });
       }
       updateSelectedCount();
       state.lastIndexByDay[day] = undefined;
@@ -2830,6 +3161,9 @@
         setActionButtonState(btn, 'success', { successText: 'Скачано!' });
         celebrateExport(btn);
         showNotify(`Файл «${fileName}» скачан — можно загружать в планировщик.`, 'success', 5500);
+        if (APP.yandexPlanningUrl) {
+          window.open(APP.yandexPlanningUrl, '_blank', 'noopener,noreferrer');
+        }
         setTimeout(() => {
           setActionButtonState(btn, 'idle');
           updateExportButtonState();

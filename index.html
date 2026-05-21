@@ -156,21 +156,28 @@
     </main>
   </div>
 
-  <div id="extraOrderModal" class="app-modal" hidden aria-hidden="true">
+  <div id="extraOrderModal" class="app-modal extra-order-modal" hidden aria-hidden="true">
     <button type="button" class="app-modal__backdrop" id="extraOrderModalBackdrop" aria-label="Закрыть"></button>
-    <div class="app-modal__panel" role="dialog" aria-labelledby="extraOrderModalTitle" aria-modal="true">
-      <div class="app-modal__header">
-        <h2 id="extraOrderModalTitle" class="app-modal__title">Разовая точка доставки</h2>
-        <button type="button" class="app-modal__close" id="extraOrderModalClose" aria-label="Закрыть">×</button>
+    <div class="app-modal__panel extra-order-modal__panel" role="dialog" aria-labelledby="extraOrderModalTitle" aria-modal="true">
+      <div class="extra-order-modal__header">
+        <div class="extra-order-modal__heading">
+          <div class="extra-order-modal__title-row">
+            <h2 id="extraOrderModalTitle" class="extra-order-modal__title">Разовая точка доставки</h2>
+            <span class="extra-order-day-badge" id="extraOrderModalDay"></span>
+          </div>
+          <p class="extra-order-modal__intro">Точка будет добавлена в список выбранного дня и отмечена для экспорта. В Google Sheets она не сохраняется.</p>
+        </div>
+        <button type="button" class="extra-order-modal__close" id="extraOrderModalClose" aria-label="Закрыть">×</button>
       </div>
-      <p class="muted app-modal__intro">Точка попадёт в список выбранного дня и сразу будет отмечена для экспорта. В таблицу Google Sheets не сохраняется.</p>
-      <p class="muted app-modal__day" id="extraOrderModalDay"></p>
-      <div id="extraOrderFormBlocks" class="extra-order-blocks"></div>
-      <div class="app-modal__actions row" style="flex-wrap:wrap; gap:8px; margin-top:12px">
-        <button type="button" class="mini-btn" id="extraOrderAddBlock">+ Добавить ещё точку</button>
-        <span style="flex:1"></span>
-        <button type="button" id="extraOrderCancel">Отмена</button>
-        <button type="button" class="mini-btn" id="extraOrderSubmit">Добавить в список</button>
+      <div class="extra-order-modal__body">
+        <div id="extraOrderFormBlocks" class="extra-order-blocks"></div>
+      </div>
+      <div class="extra-order-modal__footer">
+        <button type="button" class="extra-order-btn extra-order-btn--ghost" id="extraOrderAddBlock">+ Добавить ещё точку</button>
+        <div class="extra-order-modal__footer-actions">
+          <button type="button" class="extra-order-btn extra-order-btn--ghost" id="extraOrderCancel">Отмена</button>
+          <button type="button" class="extra-order-btn extra-order-btn--primary" id="extraOrderSubmit">Добавить в список</button>
+        </div>
       </div>
     </div>
   </div>
