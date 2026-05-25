@@ -1,0 +1,42 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# Cursor / IDE (локальные планы и служебные файлы редактора)
+.cursor/
+
+# VS Code (локальные настройки; общие можно вынести в репозиторий отдельно)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Логи и временные файлы
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+.cache/
+
+# Локальные секреты и переопределения конфигурации
+.env
+.env.*
+!.env.example
+*.local
+
+# Зависимости и сборка (если появятся npm/vite и т.п.)
+node_modules/
+dist/
+build/
+.parcel-cache/
+.vite/

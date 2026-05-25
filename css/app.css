@@ -1660,3 +1660,386 @@
       border: 1px solid #334060;
       color: #b8c9e8;
     }
+
+    .header-row__actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .complex-planner-entry {
+      white-space: nowrap;
+    }
+
+    body.complex-planner-open .container {
+      display: none;
+    }
+
+    body.complex-planner-open {
+      display: block;
+    }
+
+    .complex-planner {
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px 60px 48px;
+      box-sizing: border-box;
+      display: none;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    body.complex-planner-open .complex-planner:not([hidden]) {
+      display: flex;
+    }
+
+    .complex-planner__header {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .complex-planner__toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px 16px;
+    }
+
+    .complex-planner__back {
+      flex-shrink: 0;
+    }
+
+    .complex-planner__title {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 600;
+      flex: 1 1 200px;
+    }
+
+    .complex-planner__toolbar-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .complex-planner__intro {
+      margin: 0;
+      max-width: 72ch;
+    }
+
+    .complex-planner__draft-status {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .complex-planner__options {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .complex-planner__option {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+      cursor: pointer;
+    }
+
+    .complex-planner__option input {
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+
+    .complex-planner__main {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .complex-planner__section .complex-planner__placeholder {
+      margin: 0 0 8px;
+    }
+
+    .complex-depot-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .complex-depot-card__block {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .complex-depot-card__block-title {
+      margin: 0 0 10px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .complex-refill-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .complex-refill-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 10px;
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+    }
+
+    .complex-refill-row .config-field {
+      flex: 1 1 140px;
+      min-width: 120px;
+    }
+
+    .complex-refill-row__actions {
+      flex-shrink: 0;
+    }
+
+    .complex-depot-card__actions {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .complex-vehicle-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .complex-vehicle-hint {
+      margin: 0 0 14px;
+      padding: 10px 12px;
+      background: rgba(110, 168, 254, 0.1);
+      border: 1px solid rgba(110, 168, 254, 0.25);
+      border-radius: 10px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .complex-vehicle-card__hint-inline {
+      margin: 8px 0 0;
+      font-size: 12px;
+    }
+
+    .complex-hint {
+      margin: 6px 0 0;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .complex-orders-prefs {
+      margin: 0 0 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .complex-orders-board {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (max-width: 1100px) {
+      .complex-orders-board {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 560px) {
+      .complex-orders-board {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .complex-orders-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 120px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .complex-orders-col__title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .complex-orders-col__count {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .complex-orders-col__list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+
+    .complex-order-card {
+      padding: 10px;
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      font-size: 13px;
+    }
+
+    .complex-order-card__title {
+      margin: 0 0 4px;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .complex-order-card__meta {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .complex-order-card__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .complex-order-card__actions select {
+      font-size: 12px;
+      padding: 4px 6px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: #1a1d24;
+      color: var(--text);
+    }
+
+    .complex-route-preview {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 6px;
+      padding: 14px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      font-size: 14px;
+    }
+
+    .complex-route-preview__step {
+      padding: 8px 12px;
+      background: var(--card);
+      border: 1px solid rgba(110, 168, 254, 0.35);
+      border-radius: 10px;
+    }
+
+    .complex-route-preview__step--depot {
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .complex-route-preview__arrow {
+      color: var(--muted);
+      font-size: 18px;
+      user-select: none;
+    }
+
+    body.complex-order-modal-open {
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+    }
+
+    .complex-order-modal__panel {
+      max-width: 720px;
+      width: calc(100% - 32px);
+      max-height: min(90vh, 900px);
+      overflow: auto;
+    }
+
+    .complex-order-modal__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 20px 0;
+    }
+
+    .complex-order-modal__title {
+      margin: 0;
+      font-size: 1.2rem;
+    }
+
+    .complex-order-modal__close {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    .complex-order-modal__body {
+      padding: 16px 20px;
+    }
+
+    .complex-order-modal__more {
+      margin-top: 12px;
+    }
+
+    .complex-order-modal__more summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .complex-order-modal__footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 12px 20px 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    @media (max-width: 768px) {
+      .complex-planner {
+        padding: 20px 24px 40px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .complex-planner {
+        padding: 16px 16px 32px;
+      }
+
+      .complex-planner__toolbar-actions {
+        width: 100%;
+      }
+
+      .complex-planner__toolbar-actions .mini-btn {
+        flex: 1 1 auto;
+      }
+    }

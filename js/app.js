@@ -1273,6 +1273,158 @@
       }
     };
 
+    /** Макс. окон дозагрузки в Excel (колонки time_windows_refilling.time_windows.N.*). */
+    const COMPLEX_REFILLING_EXCEL_MAX_WINDOWS = 4;
+
+    function complexRefillingExcelKey(index, field) {
+      return `time_windows_refilling.time_windows.${index}.${field}`;
+    }
+
+    function countComplexDepotFilledRefillingWindows(refillingWindows) {
+      if (!Array.isArray(refillingWindows)) return 0;
+      return refillingWindows.filter((w) => w && String(w.time_window || '').trim()).length;
+    }
+
+    /** Сколько индексных колонок .time_windows.N нужно (0, если везде одно окно или нет окон). */
+    function getComplexDepotMultiRefillingSlotCount(depots) {
+      let max = 0;
+      (depots || []).forEach((d) => {
+        const n = countComplexDepotFilledRefillingWindows(d.refillingWindows);
+        if (n > 1) max = Math.max(max, n);
+      });
+      return Math.min(max, COMPLEX_REFILLING_EXCEL_MAX_WINDOWS);
+    }
+
+    function buildComplexDepotIndexedColumns(multiSlots, depots) {
+      if (!multiSlots) return [];
+      const cols = [];
+      for (let i = 0; i < multiSlots; i++) {
+        cols.push({
+          key: complexRefillingExcelKey(i, 'time_window'),
+          label: `Дозагрузка ${i + 1}, окно`,
+          width: 22,
+          getValue: (d) => d[complexRefillingExcelKey(i, 'time_window')] || ''
+        });
+        const anyHard = (depots || []).some((d) => {
+          const rw = d.refillingWindows && d.refillingWindows[i];
+          if (!rw) return false;
+          const hw = String(rw.hard_time_window || '').trim();
+          return Boolean(hw) && !/^(FALSE|0|no|нет)$/i.test(hw);
+        });
+        if (anyHard) {
+          cols.push({
+            key: complexRefillingExcelKey(i, 'hard_time_window'),
+            label: `Дозагрузка ${i + 1}, жёсткое`,
+            width: 24,
+            getValue: (d) => d[complexRefillingExcelKey(i, 'hard_time_window')] || ''
+          });
+        }
+      }
+      return cols;
+    }
+
+    const COMPLEX_DEPOT_EXPORT_BASE_COLUMNS = [
+      { key: 'id', label: 'ID', width: 14, getValue: (d) => d.id || '' },
+      { key: 'ref', label: 'Название', width: 20, getValue: (d) => d.ref || '' },
+      { key: 'point.lat', label: 'Широта *', width: 10, getValue: (d) => d['point.lat'] ?? '' },
+      { key: 'point.lon', label: 'Долгота *', width: 10, getValue: (d) => d['point.lon'] ?? '' },
+      { key: 'time_window', label: 'Время работы', width: 22, getValue: (d) => formatComplexTimeRangeForExcel(d.time_window) },
+      { key: 'time_windows_loading.time_window', label: 'Окно первой загрузки', width: 22, getValue: (d) => formatComplexTimeRangeForExcel(d['time_windows_loading.time_window']) },
+      { key: 'time_windows_loading.hard_time_window', label: 'Жёсткое окно загрузки', width: 22, getValue: (d) => formatComplexDepotHardTimeWindow({ time_window: d['time_windows_loading.time_window'], hard_time_window: d['time_windows_loading.hard_time_window'] }) },
+      {
+        key: 'time_windows_refilling.time_window',
+        label: 'Окно дозагрузки (одно)',
+        width: 24,
+        getValue: (d) => (d['time_windows_refilling.time_windows.0.time_window'] ? '' : (d['time_windows_refilling.time_window'] || ''))
+      },
+      {
+        key: 'time_windows_refilling.hard_time_window',
+        label: 'Жёсткое окно дозагрузки (одно)',
+        width: 26,
+        getValue: (d) => (d['time_windows_refilling.time_windows.0.time_window'] ? '' : (d['time_windows_refilling.hard_time_window'] || ''))
+      },
+      { key: 'service_duration_s', label: 'service_duration_s', width: 18, getValue: (d) => d.service_duration_s ?? '' }
+    ];
+
+    function buildComplexDepotExportSchema(depots) {
+      const multiSlots = getComplexDepotMultiRefillingSlotCount(depots);
+      return {
+        sheetName: 'Depot',
+        title: 'Depot — склады (сложное планирование)',
+        includeKeys: true,
+        multiRefillingSlots: multiSlots,
+        columns: [
+          ...COMPLEX_DEPOT_EXPORT_BASE_COLUMNS,
+          ...buildComplexDepotIndexedColumns(multiSlots, depots)
+        ]
+      };
+    }
+
+    const COMPLEX_EXPORT_SCHEMAS = {
+      orders: {
+        sheetName: 'Orders',
+        title: 'Orders — заказы (сложное планирование)',
+        includeKeys: true,
+        columns: [
+          { key: 'id', label: 'Номер заказа', width: 14, getValue: (r) => r.id },
+          { key: 'point.lat', label: 'Широта', width: 10, getValue: (r) => r['point.lat'] ?? '' },
+          { key: 'point.lon', label: 'Долгота', width: 10, getValue: (r) => r['point.lon'] ?? '' },
+          { key: 'title', label: 'Наименование клиента', width: 26, getValue: (r) => r.title || '' },
+          { key: 'address', label: 'Адрес клиента', width: 32, getValue: (r) => r.address || '' },
+          { key: 'phone', label: 'Телефон', width: 18, getValue: (r) => toStrPhone(r.phone) || '' },
+          { key: 'time_window', label: 'Временное окно *', width: 16, getValue: (r) => r.time_window || '' },
+          { key: 'hard_window', label: 'Признак жесткого окна', width: 20, getValue: (r) => excelBool(r.hard_window) },
+          { key: 'comments', label: 'Комментарии к заказу', width: 24, getValue: (r) => r.comments || '' },
+          { key: 'shared_service_duration_s', label: 'Время обслуживания *', width: 18, getValue: (r) => pickValue(r, 'shared_service_duration_s', 'service_duration_s') || '' },
+          { key: 'service_duration_s', label: '', width: 3, getValue: (r) => pickValue(r, 'service_duration_s', 'shared_service_duration_s') || '' },
+          { key: 'shipment_size.weight_kg', label: 'Вес (брутто), кг', width: 14, getValue: (r) => r['shipment_size.weight_kg'] ?? '' },
+          { key: 'shipment_size.units', label: 'Кол-во мест', width: 16, getValue: (r) => r['shipment_size.units'] ?? '' },
+          { key: 'shipment_size.volume_cbm', label: 'Объем, м³', width: 12, getValue: (r) => r['shipment_size.volume_cbm'] ?? '' },
+          { key: 'type', label: 'Тип', width: 12, getValue: () => 'delivery' },
+          { key: 'depot_id', label: 'Наличие на складах', width: 18, getValue: (r) => r.depot_id || '' },
+          { key: 'depot_ready_time', label: 'depot_ready_time', width: 18, getValue: (r) => r.depot_ready_time || '' },
+          { key: 'depot_expiring_time', label: 'depot_expiring_time', width: 18, getValue: (r) => r.depot_expiring_time || '' },
+          { key: 'depot_duration_s', label: 'depot_duration_s', width: 16, getValue: (r) => r.depot_duration_s ?? '' }
+        ]
+      },
+      vehicles: {
+        sheetName: 'Vehicles',
+        title: 'Vehicles — транспорт (сложное планирование)',
+        includeKeys: true,
+        columns: [
+          { key: 'id', label: 'ID (Идентификатор машины)', width: 18, getValue: (v) => v.id || '' },
+          { key: 'ref', label: 'Имя курьера', width: 22, getValue: (v) => v.ref || '' },
+          { key: 'capacity.weight_kg', label: 'Грузоподъемность, кг', width: 20, getValue: (v) => v['capacity.weight_kg'] ?? '' },
+          { key: 'start_at', label: 'Начальная точка', width: 20, getValue: (v) => formatComplexVehicleStartFinish(v.start_at, v) },
+          { key: 'finish_at', label: 'Конечная точка', width: 20, getValue: (v) => formatComplexVehicleStartFinish(v.finish_at, v) },
+          { key: 'visit_depot_at_start', label: 'Посетить склад в начале рейса', width: 22, getValue: (v) => excelBool(v.visit_depot_at_start) },
+          { key: 'return_to_depot', label: 'Надо вернуться на склад', width: 24, getValue: (v) => excelBool(v.return_to_depot) },
+          { key: 'depot_id', label: 'Идентификаторы складов', width: 28, getValue: (v) => v.depot_id || '' },
+          { key: 'shifts.0.time_window', label: 'Смена 1. Временное окно', width: 24, getValue: (v) => formatComplexTimeRangeForExcel(v['shifts.0.time_window']) },
+          { key: 'max_runs', label: 'max_runs', width: 12, getValue: (v) => v.max_runs ?? '' },
+          { key: 'allow_different_depots_in_route', label: 'Разрешить заезды на склады для дозагрузки', width: 30, getValue: (v) => excelBool(v.allow_different_depots_in_route) },
+          { key: 'max_middle_depots', label: 'Максимальное количество промежуточных складов', width: 30, getValue: (v) => v.max_middle_depots ?? '' },
+          { key: 'starting_depot_id', label: 'Стартовый склад', width: 22, getValue: (v) => v.starting_depot_id || '' },
+          { key: 'middle_depot_id', label: 'Промежуточный склад', width: 22, getValue: (v) => v.middle_depot_id || '' }
+        ]
+      },
+      depots: {
+        sheetName: 'Depot',
+        title: 'Depot — склады (сложное планирование)',
+        includeKeys: true,
+        columns: COMPLEX_DEPOT_EXPORT_BASE_COLUMNS
+      },
+      options: {
+        sheetName: 'Options',
+        title: 'Options',
+        includeKeys: false,
+        columns: [
+          { key: 'penalize_late_service', label: 'Штрафовать за сервис позднее', width: 28, getValue: (r) => excelBool(r.penalize_late_service) },
+          { key: 'load_when_ready', label: 'Погрузка по готовности', width: 22, getValue: (r) => excelBool(r.load_when_ready) }
+        ]
+      }
+    };
+
     const dataStore = {
       get vehicles() { return getActiveStores().vehicles; },
       set vehicles(v) { getActiveStores().vehicles = v; },
@@ -1536,6 +1688,46 @@
       if (v == null) return false;
       const norm = String(v).trim().toLowerCase();
       return ['true', '1', 'yes', 'да', 'y', 'on'].includes(norm);
+    }
+
+    /** Строка TRUE/FALSE для импорта Excel Яндекс Маршрутизации. */
+    function excelBool(v) {
+      return boolFrom(v) ? 'TRUE' : 'FALSE';
+    }
+
+    /** Интервал HH:MM:SS-HH:MM:SS для листов Depot/Vehicles/Orders. */
+    function formatComplexTimeRangeForExcel(value) {
+      if (value == null || value === '') return '';
+      const s = String(value).trim();
+      if (/^(TRUE|FALSE|true|false|да|нет)$/i.test(s)) return '';
+      const parts = s.split(/\s*[-–—]\s*/);
+      if (parts.length < 2) return s;
+      const fmtPart = (t) => {
+        const p = t.trim();
+        if (/^\d{1,2}:\d{2}:\d{2}$/.test(p)) return p;
+        if (/^\d{1,2}:\d{2}$/.test(p)) return `${p}:00`;
+        return p;
+      };
+      return `${fmtPart(parts[0])}-${fmtPart(parts[1])}`;
+    }
+
+    function formatComplexDepotHardTimeWindow(loadingWindow) {
+      const lw = loadingWindow && typeof loadingWindow === 'object' ? loadingWindow : {};
+      const hw = lw.hard_time_window != null ? String(lw.hard_time_window).trim() : '';
+      if (!hw) return '';
+      if (/^(TRUE|FALSE)$/i.test(hw)) {
+        return formatComplexTimeRangeForExcel(lw.time_window);
+      }
+      return formatComplexTimeRangeForExcel(hw);
+    }
+
+    function formatComplexVehicleStartFinish(value, vehicle) {
+      const s = value != null ? String(value).trim() : '';
+      if (!s) return '';
+      if (/^depot:/i.test(s)) {
+        if (vehicle && (vehicle.visit_depot_at_start || vehicle.return_to_depot)) return '';
+      }
+      return s;
     }
 
     function showError(msg) {
@@ -4579,6 +4771,1738 @@
       }
     });
 
+    // ===== Complex planner (отдельный экран, PR1+) =====
+    const COMPLEX_STORAGE_KEYS = {
+      draft: 'complexPlannerDraft_v1'
+    };
+    const COMPLEX_LOADING_STAGES = new Set(['morning', 'day', 'evening', 'custom']);
+    const COMPLEX_MORNING_READY_MODES = new Set(['empty', 'loading_start']);
+
+    const COMPLEX_VEHICLE_FIELD_CONFIG = [
+      { key: 'id', label: 'ID машины', placeholder: 'V-1' },
+      { key: 'ref', label: 'Имя курьера', placeholder: 'Иван' },
+      { key: 'capacity.weight_kg', label: 'Грузоподъёмность, кг', type: 'number', step: 'any', placeholder: '1000' },
+      { key: 'start_at', label: 'Начальная точка', placeholder: 'depot:1' },
+      { key: 'finish_at', label: 'Конечная точка', placeholder: 'depot:1' },
+      { key: 'depot_id', label: 'Склады машины (depot_id)', placeholder: '1 или 1,2' },
+      { key: 'shifts.0.time_window', label: 'Рабочее окно смены', placeholder: '07:00-20:00' },
+      { key: 'max_runs', label: 'max_runs (число рейсов)', type: 'number', step: '1', placeholder: '2' },
+      { key: 'max_middle_depots', label: 'max_middle_depots', type: 'number', step: '1', placeholder: '2' },
+      { key: 'starting_depot_id', label: 'Стартовый склад (starting_depot_id)', placeholder: '1' },
+      { key: 'middle_depot_id', label: 'Промежуточный склад (middle_depot_id)', placeholder: 'необязательно' },
+      { key: 'depot_extra_service_duration_s', label: 'depot_extra_service_duration_s, сек', type: 'number', step: '1', placeholder: 'необязательно' }
+    ];
+
+    const COMPLEX_VEHICLE_FLAG_CONFIG = [
+      { key: 'visit_depot_at_start', label: 'Посетить склад в начале рейса' },
+      { key: 'return_to_depot', label: 'Вернуться на склад в конце' },
+      { key: 'allow_different_depots_in_route', label: 'Разрешить разные склады в маршруте (дозагрузки)' }
+    ];
+
+    const COMPLEX_STAGE_COLUMNS = [
+      { key: 'morning', title: 'Утро / первая загрузка', short: 'Утро' },
+      { key: 'day', title: 'День / дозагрузка 1', short: 'День' },
+      { key: 'evening', title: 'Вечер / дозагрузка 2', short: 'Вечер' },
+      { key: 'custom', title: 'Своё время', short: 'Своё' }
+    ];
+
+    let complexPlannerScreenOpen = false;
+    let complexPlannerState = null;
+    let complexPlannerStateHydrated = false;
+    let complexPlannerSaveTimer = null;
+
+    function getComplexPlannerConfig() {
+      const cfg = APP.complexPlanner || {};
+      return {
+        exportFilePrefix: cfg.exportFilePrefix || 'Сложное_планирование',
+        defaultTimeWindow: cfg.defaultTimeWindow || '10:00-21:00'
+      };
+    }
+
+    function createEmptyComplexPlannerState() {
+      return {
+        version: 1,
+        depots: [],
+        vehicles: [],
+        orders: [],
+        options: {
+          penalize_late_service: false,
+          load_when_ready: false
+        },
+        prefs: {
+          morningReadyMode: 'empty'
+        }
+      };
+    }
+
+    function normalizeComplexRefillingWindow(raw) {
+      const item = raw && typeof raw === 'object' ? raw : {};
+      const tw = item.time_window != null ? String(item.time_window) : '';
+      let hw = item.hard_time_window != null ? String(item.hard_time_window).trim() : '';
+      if (/^TRUE$/i.test(hw)) hw = tw;
+      else if (/^FALSE$/i.test(hw)) hw = '';
+      return { time_window: tw, hard_time_window: hw };
+    }
+
+    function normalizeComplexDepot(raw) {
+      const item = raw && typeof raw === 'object' ? raw : {};
+      const refillingRaw = Array.isArray(item.refillingWindows) ? item.refillingWindows : [];
+      const loadingRaw = item.loadingWindow && typeof item.loadingWindow === 'object' ? item.loadingWindow : {};
+      return {
+        uid: item.uid != null ? String(item.uid) : `depot_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: item.id != null ? String(item.id) : '',
+        ref: item.ref != null ? String(item.ref) : '',
+        'point.lat': item['point.lat'] ?? '',
+        'point.lon': item['point.lon'] ?? '',
+        time_window: item.time_window != null ? String(item.time_window) : '',
+        loadingWindow: normalizeComplexRefillingWindow(loadingRaw),
+        refillingWindows: refillingRaw.map(normalizeComplexRefillingWindow),
+        service_duration_s: item.service_duration_s ?? '',
+        load_service_duration_s: item.load_service_duration_s ?? '',
+        finish_service_duration_s: item.finish_service_duration_s ?? ''
+      };
+    }
+
+    function normalizeComplexVehicle(raw) {
+      const item = raw && typeof raw === 'object' ? raw : {};
+      let start_at = item.start_at != null ? String(item.start_at).trim() : '';
+      let finish_at = item.finish_at != null ? String(item.finish_at).trim() : '';
+      if (/^depot:/i.test(start_at) && item.visit_depot_at_start) start_at = '';
+      if (/^depot:/i.test(finish_at) && item.return_to_depot) finish_at = '';
+      return {
+        uid: item.uid != null ? String(item.uid) : `vehicle_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: item.id != null ? String(item.id) : '',
+        ref: item.ref != null ? String(item.ref) : '',
+        'capacity.weight_kg': item['capacity.weight_kg'] ?? '',
+        start_at,
+        finish_at,
+        visit_depot_at_start: !!item.visit_depot_at_start,
+        return_to_depot: !!item.return_to_depot,
+        depot_id: item.depot_id != null ? String(item.depot_id) : '',
+        'shifts.0.time_window': item['shifts.0.time_window'] != null ? String(item['shifts.0.time_window']) : '',
+        max_runs: item.max_runs ?? '',
+        allow_different_depots_in_route: !!item.allow_different_depots_in_route,
+        max_middle_depots: item.max_middle_depots ?? '',
+        starting_depot_id: item.starting_depot_id != null ? String(item.starting_depot_id) : '',
+        middle_depot_id: item.middle_depot_id != null ? String(item.middle_depot_id) : '',
+        depot_extra_service_duration_s: item.depot_extra_service_duration_s ?? ''
+      };
+    }
+
+    function normalizeComplexOrder(raw) {
+      const item = raw && typeof raw === 'object' ? raw : {};
+      const stage = COMPLEX_LOADING_STAGES.has(item.loadingStage) ? item.loadingStage : 'morning';
+      return {
+        uid: item.uid != null ? String(item.uid) : `order_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: item.id != null ? String(item.id) : '',
+        title: item.title != null ? String(item.title) : '',
+        address: item.address != null ? String(item.address) : '',
+        phone: item.phone != null ? String(item.phone) : '',
+        'point.lat': item['point.lat'] ?? '',
+        'point.lon': item['point.lon'] ?? '',
+        depot_id: item.depot_id != null ? String(item.depot_id) : '',
+        loadingStage: stage,
+        depot_ready_time: item.depot_ready_time != null ? String(item.depot_ready_time) : '',
+        depot_expiring_time: item.depot_expiring_time != null ? String(item.depot_expiring_time) : '',
+        depot_duration_s: item.depot_duration_s ?? '',
+        time_window: item.time_window != null ? String(item.time_window) : getComplexPlannerConfig().defaultTimeWindow,
+        hard_window: item.hard_window !== false,
+        shared_service_duration_s: item.shared_service_duration_s ?? '',
+        service_duration_s: item.service_duration_s ?? '',
+        weight: item.weight ?? '',
+        units: item.units ?? '',
+        volume: item.volume ?? '',
+        comments: item.comments != null ? String(item.comments) : ''
+      };
+    }
+
+    function normalizeComplexPlannerState(raw) {
+      const base = createEmptyComplexPlannerState();
+      if (!raw || typeof raw !== 'object') return base;
+      const optionsRaw = raw.options && typeof raw.options === 'object' ? raw.options : {};
+      const prefsRaw = raw.prefs && typeof raw.prefs === 'object' ? raw.prefs : {};
+      const morningReadyMode = COMPLEX_MORNING_READY_MODES.has(prefsRaw.morningReadyMode)
+        ? prefsRaw.morningReadyMode
+        : base.prefs.morningReadyMode;
+      return {
+        version: 1,
+        depots: (Array.isArray(raw.depots) ? raw.depots : []).map(normalizeComplexDepot),
+        vehicles: (Array.isArray(raw.vehicles) ? raw.vehicles : []).map(normalizeComplexVehicle),
+        orders: (Array.isArray(raw.orders) ? raw.orders : []).map(normalizeComplexOrder),
+        options: {
+          penalize_late_service: !!optionsRaw.penalize_late_service,
+          load_when_ready: !!optionsRaw.load_when_ready
+        },
+        prefs: { morningReadyMode }
+      };
+    }
+
+    function ensureComplexPlannerState() {
+      if (!complexPlannerState) {
+        complexPlannerState = createEmptyComplexPlannerState();
+      }
+      return complexPlannerState;
+    }
+
+    function loadComplexPlannerDraft() {
+      try {
+        const raw = localStorage.getItem(COMPLEX_STORAGE_KEYS.draft);
+        if (!raw) {
+          complexPlannerState = createEmptyComplexPlannerState();
+          complexPlannerStateHydrated = true;
+          return complexPlannerState;
+        }
+        const parsed = JSON.parse(raw);
+        complexPlannerState = normalizeComplexPlannerState(parsed);
+        complexPlannerStateHydrated = true;
+        return complexPlannerState;
+      } catch (err) {
+        console.warn('complexPlannerDraft load failed', err);
+        complexPlannerState = createEmptyComplexPlannerState();
+        complexPlannerStateHydrated = true;
+        return complexPlannerState;
+      }
+    }
+
+    function saveComplexPlannerDraft() {
+      const payload = ensureComplexPlannerState();
+      try {
+        localStorage.setItem(COMPLEX_STORAGE_KEYS.draft, JSON.stringify(payload));
+        return true;
+      } catch (err) {
+        console.warn('complexPlannerDraft save failed', err);
+        return false;
+      }
+    }
+
+    function scheduleComplexPlannerSave() {
+      if (complexPlannerSaveTimer) clearTimeout(complexPlannerSaveTimer);
+      complexPlannerSaveTimer = setTimeout(() => {
+        complexPlannerSaveTimer = null;
+        saveComplexPlannerDraft();
+        updateComplexPlannerDraftStatus();
+      }, 400);
+    }
+
+    function resetComplexPlannerDraft() {
+      complexPlannerState = createEmptyComplexPlannerState();
+      complexPlannerStateHydrated = true;
+      saveComplexPlannerDraft();
+      if (complexPlannerScreenOpen) renderComplexPlanner();
+      return complexPlannerState;
+    }
+
+    /** Демо-пример: склад Лыткарино, курьер, заказы Москва/МО (координаты WGS84). */
+    function buildComplexPlannerDemoPayload() {
+      return {
+        version: 1,
+        depots: [{
+          id: '501',
+          ref: 'Склад Лыткарино (демо)',
+          'point.lat': 55.5852,
+          'point.lon': 37.9053,
+          time_window: '06:00-22:00',
+          loadingWindow: { time_window: '07:00-09:00', hard_time_window: '' },
+          refillingWindows: [
+            { time_window: '12:00-13:00', hard_time_window: '' },
+            { time_window: '16:00-17:00', hard_time_window: '' }
+          ],
+          service_duration_s: 900,
+          load_service_duration_s: 600,
+          finish_service_duration_s: 300
+        }],
+        vehicles: [{
+          id: '801',
+          ref: 'Курьер демо (Изотерм)',
+          'capacity.weight_kg': 1200,
+          start_at: '',
+          finish_at: '',
+          visit_depot_at_start: true,
+          return_to_depot: true,
+          depot_id: '501',
+          'shifts.0.time_window': '07:00-21:00',
+          max_runs: 3,
+          allow_different_depots_in_route: true,
+          max_middle_depots: 2,
+          starting_depot_id: '501',
+          middle_depot_id: '',
+          depot_extra_service_duration_s: ''
+        }],
+        orders: [
+          {
+            id: '1001',
+            title: 'Кафе «Север» (Химки)',
+            address: 'г. Химки, ул. Ленинградская, 23',
+            phone: '+74959990001',
+            'point.lat': 55.8912,
+            'point.lon': 37.4148,
+            depot_id: '501',
+            loadingStage: 'morning',
+            time_window: '10:00-14:00',
+            shared_service_duration_s: 420,
+            weight: 45,
+            units: 4
+          },
+          {
+            id: '1002',
+            title: 'Ресторан Мытищи-1',
+            address: 'г. Мытищи, Осташковское ш., 12',
+            phone: '+74959990002',
+            'point.lat': 55.9071,
+            'point.lon': 37.7362,
+            depot_id: '501',
+            loadingStage: 'morning',
+            time_window: '10:30-15:00',
+            shared_service_duration_s: 360,
+            weight: 38,
+            units: 3
+          },
+          {
+            id: '1003',
+            title: 'Столовая Люберцы',
+            address: 'г. Люберцы, Комсомольский пр-т, 18',
+            phone: '+74959990003',
+            'point.lat': 55.6765,
+            'point.lon': 37.8938,
+            depot_id: '501',
+            loadingStage: 'morning',
+            time_window: '11:00-15:30',
+            shared_service_duration_s: 300,
+            weight: 52,
+            units: 5
+          },
+          {
+            id: '1004',
+            title: 'Пекарня Балашиха',
+            address: 'г. Балашиха, ул. Советская, 45',
+            phone: '+74959990004',
+            'point.lat': 55.7964,
+            'point.lon': 37.9381,
+            depot_id: '501',
+            loadingStage: 'day',
+            time_window: '13:00-18:00',
+            shared_service_duration_s: 480,
+            weight: 41,
+            units: 4
+          },
+          {
+            id: '1005',
+            title: 'Магазин Королёв',
+            address: 'г. Королёв, пр-т Космонавтов, 8',
+            phone: '+74959990005',
+            'point.lat': 55.9167,
+            'point.lon': 37.8545,
+            depot_id: '501',
+            loadingStage: 'day',
+            time_window: '14:00-19:00',
+            shared_service_duration_s: 360,
+            weight: 29,
+            units: 2
+          },
+          {
+            id: '1006',
+            title: 'Кафе Одинцово',
+            address: 'г. Одинцово, Можайское ш., 71',
+            phone: '+74959990006',
+            'point.lat': 55.6782,
+            'point.lon': 37.2775,
+            depot_id: '501',
+            loadingStage: 'evening',
+            time_window: '17:00-21:00',
+            shared_service_duration_s: 420,
+            weight: 33,
+            units: 3
+          },
+          {
+            id: '1007',
+            title: 'Ресторан Зеленоград',
+            address: 'г. Зеленоград, к. 1801',
+            phone: '+74959990007',
+            'point.lat': 55.9821,
+            'point.lon': 37.1814,
+            depot_id: '501',
+            loadingStage: 'evening',
+            time_window: '17:30-21:30',
+            shared_service_duration_s: 390,
+            weight: 27,
+            units: 2
+          },
+          {
+            id: '1008',
+            title: 'Точка Подольск (своё время)',
+            address: 'г. Подольск, ул. Кирова, 52',
+            phone: '+74959990008',
+            'point.lat': 55.4312,
+            'point.lon': 37.5456,
+            depot_id: '501',
+            loadingStage: 'custom',
+            depot_ready_time: '14:30:00',
+            time_window: '15:00-20:00',
+            shared_service_duration_s: 450,
+            weight: 55,
+            units: 6,
+            comments: 'Демо: готовность на складе задана вручную'
+          }
+        ],
+        options: {
+          penalize_late_service: true,
+          load_when_ready: false
+        },
+        prefs: {
+          morningReadyMode: 'empty'
+        }
+      };
+    }
+
+    function loadComplexPlannerDemo() {
+      const hasData = ensureComplexPlannerState().depots.length
+        || ensureComplexPlannerState().vehicles.length
+        || ensureComplexPlannerState().orders.length;
+      if (hasData && !window.confirm('Заменить текущий черновик демо-примером (Москва/МО)?')) {
+        return;
+      }
+      complexPlannerState = normalizeComplexPlannerState(buildComplexPlannerDemoPayload());
+      complexPlannerStateHydrated = true;
+      saveComplexPlannerDraft();
+      if (complexPlannerScreenOpen) {
+        syncComplexPlannerOptionsToUi();
+        renderComplexPlanner();
+      }
+      showNotify(
+        'Демо загружено: 1 склад (Лыткарино), 1 курьер (max_runs=3), 8 заказов. Скачайте XLSX и загрузите в Яндекс Маршрутизацию.',
+        'success',
+        8000
+      );
+    }
+
+    function hydrateComplexPlannerStateIfNeeded() {
+      if (!complexPlannerStateHydrated) loadComplexPlannerDraft();
+      return ensureComplexPlannerState();
+    }
+
+    function updateComplexPlannerDraftStatus() {
+      const el = document.getElementById('complexPlannerDraftStatus');
+      if (!el) return;
+      const s = ensureComplexPlannerState();
+      const parts = [
+        `Склады: ${s.depots.length}`,
+        `Курьеры: ${s.vehicles.length}`,
+        `Заказы: ${s.orders.length}`
+      ];
+      el.textContent = `${parts.join(' · ')}. Черновик сохраняется автоматически.`;
+    }
+
+    function formatComplexRefillingHardForExcel(win) {
+      const tw = win && win.time_window ? formatComplexTimeRangeForExcel(win.time_window) : '';
+      let hw = win && win.hard_time_window ? String(win.hard_time_window).trim() : '';
+      if (/^(TRUE|FALSE)$/i.test(hw)) hw = tw;
+      else if (hw) hw = formatComplexTimeRangeForExcel(hw);
+      return hw;
+    }
+
+    /**
+     * Сериализация окон дозагрузки для Excel Яндекса.
+     * Одно окно → time_windows_refilling.time_window (объект, как time_windows_loading).
+     * Несколько → time_windows_refilling.time_windows.0.time_window, .1… (объект с массивом time_windows в API).
+     * Нельзя: «;» в одной ячейке; time_windows_refilling.0.* (даёт массив вместо object).
+     * @returns {{ ok: boolean, excelFields?: Record<string, string>, error?: string }}
+     */
+    function serializeRefillingWindows(windows) {
+      if (!Array.isArray(windows) || !windows.length) {
+        return { ok: true, excelFields: {} };
+      }
+      if (windows.length > COMPLEX_REFILLING_EXCEL_MAX_WINDOWS) {
+        return {
+          ok: false,
+          error: `Не более ${COMPLEX_REFILLING_EXCEL_MAX_WINDOWS} окон дозагрузки для Excel.`
+        };
+      }
+      const formatted = windows
+        .map((w) => {
+          const rawTw = w && w.time_window ? String(w.time_window).trim() : '';
+          if (!rawTw) return null;
+          return {
+            time_window: formatComplexTimeRangeForExcel(rawTw),
+            hard_time_window: formatComplexRefillingHardForExcel(w)
+          };
+        })
+        .filter(Boolean);
+      if (!formatted.length) return { ok: true, excelFields: {} };
+      const excelFields = {};
+      if (formatted.length === 1) {
+        excelFields['time_windows_refilling.time_window'] = formatted[0].time_window;
+        excelFields['time_windows_refilling.hard_time_window'] = formatted[0].hard_time_window;
+      } else {
+        formatted.forEach((w, i) => {
+          excelFields[complexRefillingExcelKey(i, 'time_window')] = w.time_window;
+          if (w.hard_time_window) {
+            excelFields[complexRefillingExcelKey(i, 'hard_time_window')] = w.hard_time_window;
+          }
+        });
+      }
+      return { ok: true, excelFields };
+    }
+
+    function serializeLoadingWindow(loadingWindow) {
+      const lw = loadingWindow && typeof loadingWindow === 'object' ? loadingWindow : {};
+      return lw.time_window != null ? String(lw.time_window).trim() : '';
+    }
+
+    function serializeLoadingHardWindow(loadingWindow) {
+      const lw = loadingWindow && typeof loadingWindow === 'object' ? loadingWindow : {};
+      return lw.hard_time_window != null ? String(lw.hard_time_window).trim() : '';
+    }
+
+    function setComplexNestedValue(obj, path, value) {
+      if (!obj || !path) return;
+      const keys = path.split('.');
+      let cur = obj;
+      for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i];
+        if (!cur[key] || typeof cur[key] !== 'object') cur[key] = {};
+        cur = cur[key];
+      }
+      cur[keys[keys.length - 1]] = value;
+    }
+
+    function findComplexDepotIndex(uid) {
+      const s = ensureComplexPlannerState();
+      return s.depots.findIndex((d) => d.uid === uid);
+    }
+
+    function createDefaultComplexDepot() {
+      const count = ensureComplexPlannerState().depots.length + 1;
+      return normalizeComplexDepot({
+        id: String(count),
+        ref: `Склад ${count}`,
+        time_window: '07:00-21:00',
+        loadingWindow: { time_window: '07:00-09:00', hard_time_window: '' },
+        refillingWindows: [
+          { time_window: '12:00-13:00', hard_time_window: '' },
+          { time_window: '16:00-17:00', hard_time_window: '' }
+        ]
+      });
+    }
+
+    function addComplexDepot() {
+      const s = ensureComplexPlannerState();
+      s.depots.push(createDefaultComplexDepot());
+      scheduleComplexPlannerSave();
+      renderComplexDepots();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function removeComplexDepot(uid) {
+      const s = ensureComplexPlannerState();
+      const idx = findComplexDepotIndex(uid);
+      if (idx < 0) return;
+      s.depots.splice(idx, 1);
+      scheduleComplexPlannerSave();
+      renderComplexDepots();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function addComplexRefillingWindow(depotUid) {
+      const idx = findComplexDepotIndex(depotUid);
+      if (idx < 0) return;
+      const depot = ensureComplexPlannerState().depots[idx];
+      depot.refillingWindows.push({ time_window: '', hard_time_window: '' });
+      scheduleComplexPlannerSave();
+      renderComplexDepots();
+    }
+
+    function removeComplexRefillingWindow(depotUid, refillIndex) {
+      const idx = findComplexDepotIndex(depotUid);
+      if (idx < 0) return;
+      const depot = ensureComplexPlannerState().depots[idx];
+      if (!Array.isArray(depot.refillingWindows)) depot.refillingWindows = [];
+      depot.refillingWindows.splice(refillIndex, 1);
+      scheduleComplexPlannerSave();
+      renderComplexDepots();
+    }
+
+    function updateComplexDepotField(depotUid, fieldPath, value) {
+      const idx = findComplexDepotIndex(depotUid);
+      if (idx < 0) return;
+      const depot = ensureComplexPlannerState().depots[idx];
+      if (fieldPath.startsWith('refillingWindows.')) {
+        const match = fieldPath.match(/^refillingWindows\.(\d+)\.(.+)$/);
+        if (!match) return;
+        const rIdx = Number(match[1]);
+        const rKey = match[2];
+        if (!depot.refillingWindows[rIdx]) return;
+        depot.refillingWindows[rIdx][rKey] = value;
+      } else {
+        setComplexNestedValue(depot, fieldPath, value);
+      }
+      scheduleComplexPlannerSave();
+    }
+
+    function isComplexHardWindowFlag(value, timeWindow) {
+      const s = String(value || '').trim();
+      if (!s) return false;
+      if (/^(FALSE|0|no|нет)$/i.test(s)) return false;
+      if (/^(TRUE|1|yes|да)$/i.test(s)) return true;
+      const tw = String(timeWindow || '').trim();
+      if (tw && s === tw) return true;
+      return /\d{1,2}:\d{2}/.test(s);
+    }
+
+    function complexHardWindowCheckboxHtml(label, checked) {
+      return `
+        <div class="config-flag">
+          <label>
+            <input type="checkbox" data-complex-hard ${checked ? 'checked' : ''} />
+            <span>${escapeHtml(label)}</span>
+          </label>
+        </div>`;
+    }
+
+    function renderComplexDepotRefillingRows(depot, card) {
+      const list = card.querySelector('[data-complex-refill-list]');
+      if (!list) return;
+      list.innerHTML = '';
+      (depot.refillingWindows || []).forEach((win, rIdx) => {
+        const row = document.createElement('div');
+        row.className = 'complex-refill-row';
+        const hardChecked = isComplexHardWindowFlag(win.hard_time_window, win.time_window);
+        row.innerHTML = `
+          <div class="config-field">
+            <label>Дозагрузка ${rIdx + 1}, окно</label>
+            <input type="text" data-field="refillingWindows.${rIdx}.time_window" value="${escapeHtml(win.time_window || '')}" placeholder="12:00-13:00" />
+          </div>
+          ${complexHardWindowCheckboxHtml('Жёсткое окно дозагрузки', hardChecked)}
+          <div class="complex-refill-row__actions">
+            <button type="button" class="mini-btn" data-act="remove-refill">Удалить</button>
+          </div>
+        `;
+        row.querySelector('[data-field]').addEventListener('input', (ev) => {
+          updateComplexDepotField(depot.uid, `refillingWindows.${rIdx}.time_window`, ev.target.value);
+        });
+        const hardCb = row.querySelector('[data-complex-hard]');
+        if (hardCb) {
+          hardCb.addEventListener('change', () => {
+            const tw = row.querySelector('[data-field]').value.trim();
+            updateComplexDepotField(
+              depot.uid,
+              `refillingWindows.${rIdx}.hard_time_window`,
+              hardCb.checked ? tw : ''
+            );
+            renderComplexDepots();
+          });
+        }
+        row.querySelector('[data-act="remove-refill"]').addEventListener('click', () => {
+          removeComplexRefillingWindow(depot.uid, rIdx);
+        });
+        list.appendChild(row);
+      });
+    }
+
+    function renderComplexDepots() {
+      const host = document.getElementById('complexDepotsHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      if (!s.depots.length) {
+        host.innerHTML = '<p class="empty-hint">Складов пока нет. Нажмите «Добавить склад» вверху или здесь.</p>';
+        const hint = host.querySelector('.empty-hint');
+        if (hint) {
+          const wrap = document.createElement('p');
+          wrap.className = 'complex-depot-list__empty-actions';
+          wrap.innerHTML = '<button type="button" class="mini-btn" data-act="add-depot-inline">+ Добавить склад</button>';
+          host.appendChild(wrap);
+          wrap.querySelector('[data-act="add-depot-inline"]').addEventListener('click', addComplexDepot);
+        }
+        return;
+      }
+      const list = document.createElement('div');
+      list.className = 'complex-depot-list';
+      s.depots.forEach((depot, index) => {
+        const card = document.createElement('div');
+        card.className = 'config-card complex-depot-card';
+        const titleRaw = (depot.ref && String(depot.ref).trim())
+          || (depot.id && String(depot.id).trim())
+          || `Склад #${index + 1}`;
+        const loadingHard = isComplexHardWindowFlag(
+          depot.loadingWindow && depot.loadingWindow.hard_time_window,
+          depot.loadingWindow && depot.loadingWindow.time_window
+        );
+        const refillCount = (depot.refillingWindows || []).length;
+        const stubPreview = refillCount > 1
+          ? ` · в Excel: time_windows_refilling.time_windows.0…${refillCount - 1}`
+          : '';
+        card.innerHTML = `
+          <div class="config-card__header">
+            <div>
+              <h3 class="config-card__title">${escapeHtml(titleRaw)}</h3>
+              <p class="config-card__subtitle muted">ID: ${escapeHtml(depot.id || '—')} · дозагрузок: ${refillCount}${escapeHtml(stubPreview)}</p>
+            </div>
+            <button type="button" class="mini-btn" data-act="del-depot">Удалить склад</button>
+          </div>
+          <div class="config-grid">
+            ${makeConfigField('ID склада', 'id', depot.id, { placeholder: '1' })}
+            ${makeConfigField('Название', 'ref', depot.ref, { placeholder: 'Основной склад' })}
+            ${makeConfigField('Широта', 'point.lat', depot['point.lat'], { type: 'number', step: 'any' })}
+            ${makeConfigField('Долгота', 'point.lon', depot['point.lon'], { type: 'number', step: 'any' })}
+            ${makeConfigField('Время работы склада', 'time_window', depot.time_window, { placeholder: '07:00-21:00' })}
+          </div>
+          <div class="complex-depot-card__block">
+            <h4 class="complex-depot-card__block-title">Первая загрузка</h4>
+            <div class="config-grid">
+              ${makeConfigField('Окно первой загрузки', 'loadingWindow.time_window', depot.loadingWindow.time_window, { placeholder: '07:00-09:00' })}
+            </div>
+            ${complexHardWindowCheckboxHtml('Жёсткое окно первой загрузки', loadingHard)}
+          </div>
+          <div class="complex-depot-card__block">
+            <h4 class="complex-depot-card__block-title">Окна дозагрузки</h4>
+            <div class="complex-refill-list" data-complex-refill-list></div>
+            <div class="complex-depot-card__actions">
+              <button type="button" class="mini-btn" data-act="add-refill">+ Добавить окно дозагрузки</button>
+            </div>
+          </div>
+          <div class="complex-depot-card__block">
+            <h4 class="complex-depot-card__block-title">Обслуживание на складе (сек)</h4>
+            <p class="muted complex-hint">В Excel уходит только service_duration_s (load/finish в импорте Яндекса не поддерживаются).</p>
+            <div class="config-grid">
+              ${makeConfigField('service_duration_s', 'service_duration_s', depot.service_duration_s, { type: 'number', step: '1', placeholder: 'необязательно' })}
+            </div>
+          </div>
+        `;
+        card.querySelectorAll('[data-field]').forEach((input) => {
+          const fieldPath = input.getAttribute('data-field');
+          if (!fieldPath) return;
+          const eventName = input.type === 'checkbox' ? 'change' : 'input';
+          input.addEventListener(eventName, (ev) => {
+            const el = ev.target;
+            let val = el.value;
+            if (el.type === 'number') val = el.value === '' ? '' : Number(el.value);
+            updateComplexDepotField(depot.uid, fieldPath, val);
+            if (fieldPath === 'ref' || fieldPath === 'id') {
+              const titleEl = card.querySelector('.config-card__title');
+              if (titleEl) {
+                titleEl.textContent = (depot.ref && String(depot.ref).trim())
+                  || (depot.id && String(depot.id).trim())
+                  || `Склад #${index + 1}`;
+              }
+            }
+          });
+        });
+        const loadingHardCb = card.querySelector('.complex-depot-card__block [data-complex-hard]');
+        if (loadingHardCb) {
+          loadingHardCb.addEventListener('change', () => {
+            const tw = String(depot.loadingWindow.time_window || '').trim();
+            depot.loadingWindow.hard_time_window = loadingHardCb.checked ? tw : '';
+            scheduleComplexPlannerSave();
+          });
+        }
+        card.querySelector('[data-act="add-refill"]').addEventListener('click', () => addComplexRefillingWindow(depot.uid));
+        card.querySelector('[data-act="del-depot"]').addEventListener('click', () => {
+          if (s.depots.length <= 1) {
+            removeComplexDepot(depot.uid);
+            return;
+          }
+          if (window.confirm('Удалить этот склад из черновика?')) removeComplexDepot(depot.uid);
+        });
+        renderComplexDepotRefillingRows(depot, card);
+        list.appendChild(card);
+      });
+      host.innerHTML = '';
+      host.appendChild(list);
+    }
+
+    function findComplexVehicleIndex(uid) {
+      return ensureComplexPlannerState().vehicles.findIndex((v) => v.uid === uid);
+    }
+
+    function buildComplexDepotSelectOptions(depots, selectedId) {
+      const opts = ['<option value="">— не выбран —</option>'];
+      (depots || []).forEach((d) => {
+        const id = d.id != null ? String(d.id).trim() : '';
+        if (!id) return;
+        const label = (d.ref && String(d.ref).trim()) || id;
+        const sel = id === selectedId ? ' selected' : '';
+        opts.push(`<option value="${escapeHtml(id)}"${sel}>${escapeHtml(label)} (${escapeHtml(id)})</option>`);
+      });
+      return opts.join('');
+    }
+
+    function createDefaultComplexVehicle() {
+      const s = ensureComplexPlannerState();
+      const count = s.vehicles.length + 1;
+      const firstDepot = s.depots[0];
+      const depotId = firstDepot && firstDepot.id != null ? String(firstDepot.id).trim() : '';
+      return normalizeComplexVehicle({
+        id: String(count),
+        ref: `Курьер ${count}`,
+        'capacity.weight_kg': '',
+        start_at: '',
+        finish_at: '',
+        visit_depot_at_start: true,
+        return_to_depot: true,
+        depot_id: depotId,
+        'shifts.0.time_window': '07:00-20:00',
+        max_runs: 2,
+        allow_different_depots_in_route: !!depotId,
+        max_middle_depots: depotId ? 2 : '',
+        starting_depot_id: depotId,
+        middle_depot_id: '',
+        depot_extra_service_duration_s: ''
+      });
+    }
+
+    function addComplexVehicle() {
+      ensureComplexPlannerState().vehicles.push(createDefaultComplexVehicle());
+      scheduleComplexPlannerSave();
+      renderComplexVehicles();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function removeComplexVehicle(uid) {
+      const s = ensureComplexPlannerState();
+      const idx = findComplexVehicleIndex(uid);
+      if (idx < 0) return;
+      if (s.vehicles.length > 1 && !window.confirm('Удалить этого курьера из черновика?')) return;
+      s.vehicles.splice(idx, 1);
+      scheduleComplexPlannerSave();
+      renderComplexVehicles();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function updateComplexVehicleField(vehicleUid, key, value) {
+      const idx = findComplexVehicleIndex(vehicleUid);
+      if (idx < 0) return;
+      const vehicle = ensureComplexPlannerState().vehicles[idx];
+      if (key === 'max_runs' || key === 'max_middle_depots' || key === 'depot_extra_service_duration_s') {
+        vehicle[key] = value === '' ? '' : (Number.isFinite(Number(value)) ? Number(value) : value);
+      } else if (COMPLEX_VEHICLE_FLAG_CONFIG.some((f) => f.key === key)) {
+        vehicle[key] = !!value;
+      } else {
+        vehicle[key] = value;
+      }
+      scheduleComplexPlannerSave();
+    }
+
+    function syncComplexVehicleCardHeader(vehicle, card, index) {
+      const titleEl = card.querySelector('.config-card__title');
+      const subtitleEl = card.querySelector('.config-card__subtitle');
+      if (!titleEl || !subtitleEl) return;
+      const title = (vehicle.ref && String(vehicle.ref).trim())
+        || (vehicle.id && String(vehicle.id).trim())
+        || `Курьер #${index + 1}`;
+      const parts = [];
+      const runs = vehicle.max_runs;
+      if (runs !== '' && runs != null) parts.push(`max_runs: ${runs}`);
+      const shift = vehicle['shifts.0.time_window'] && String(vehicle['shifts.0.time_window']).trim();
+      if (shift) parts.push(`смена: ${shift}`);
+      const cap = vehicle['capacity.weight_kg'];
+      if (cap !== '' && cap != null) parts.push(`${cap} кг`);
+      if (vehicle.starting_depot_id) parts.push(`старт: склад ${vehicle.starting_depot_id}`);
+      titleEl.textContent = title;
+      subtitleEl.textContent = parts.length ? parts.join(' · ') : 'Заполните параметры курьера';
+    }
+
+    function renderComplexVehicles() {
+      const host = document.getElementById('complexVehiclesHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      const hintHtml = `
+        <p class="complex-vehicle-hint" role="note">
+          <strong>Дозагрузки:</strong> укажите <code>max_runs</code> не меньше числа загрузок (утро / день / вечер / свои окна).
+          Обычно <strong>2</strong> для утро+день, <strong>3</strong> для утро+день+вечер.
+          Поле <code>shifts.0.max_runs</code> в этом режиме не используется.
+        </p>`;
+      if (!s.vehicles.length) {
+        host.innerHTML = hintHtml + '<p class="empty-hint">Курьеров пока нет. Добавьте машину для планирования с дозагрузками.</p>';
+        const wrap = document.createElement('p');
+        wrap.innerHTML = '<button type="button" class="mini-btn" data-act="add-vehicle-inline">+ Добавить курьера/машину</button>';
+        host.appendChild(wrap);
+        wrap.querySelector('[data-act="add-vehicle-inline"]').addEventListener('click', addComplexVehicle);
+        return;
+      }
+      const list = document.createElement('div');
+      list.className = 'complex-vehicle-list';
+      s.vehicles.forEach((vehicle, index) => {
+        const card = document.createElement('div');
+        card.className = 'config-card complex-vehicle-card';
+        const titleRaw = (vehicle.ref && String(vehicle.ref).trim())
+          || (vehicle.id && String(vehicle.id).trim())
+          || `Курьер #${index + 1}`;
+        const fieldsHtml = COMPLEX_VEHICLE_FIELD_CONFIG.map((cfg) => makeConfigField(
+          cfg.label,
+          cfg.key,
+          vehicle[cfg.key] ?? '',
+          cfg
+        )).join('');
+        const flagsHtml = COMPLEX_VEHICLE_FLAG_CONFIG.map((cfg) => makeConfigField(
+          cfg.label,
+          cfg.key,
+          vehicle[cfg.key],
+          { type: 'checkbox' }
+        )).join('');
+        const depotPickers = s.depots.length
+          ? `
+          <div class="config-grid" style="margin-top:10px">
+            <div class="config-field">
+              <label>Быстрый выбор стартового склада</label>
+              <select data-act="pick-start-depot">${buildComplexDepotSelectOptions(s.depots, vehicle.starting_depot_id)}</select>
+            </div>
+            <div class="config-field">
+              <label>Быстрый выбор промежуточного склада</label>
+              <select data-act="pick-middle-depot">${buildComplexDepotSelectOptions(s.depots, vehicle.middle_depot_id)}</select>
+            </div>
+          </div>`
+          : '<p class="muted complex-vehicle-card__hint-inline">Добавьте склад выше, чтобы подставлять starting_depot_id / middle_depot_id.</p>';
+        const runsNum = Number(vehicle.max_runs);
+        const runsWarn = Number.isFinite(runsNum) && runsNum < 2
+          ? '<p class="muted complex-vehicle-card__hint-inline" style="color:#f5a962">max_runs меньше 2 — дневные/вечерние дозагрузки могут не сработать.</p>'
+          : '';
+        card.innerHTML = `
+          <div class="config-card__header">
+            <div>
+              <h3 class="config-card__title">${escapeHtml(titleRaw)}</h3>
+              <p class="config-card__subtitle muted"></p>
+            </div>
+            <button type="button" class="mini-btn" data-act="del-vehicle">Удалить</button>
+          </div>
+          <div class="config-grid">${fieldsHtml}</div>
+          <div class="config-flags">${flagsHtml}</div>
+          ${depotPickers}
+          ${runsWarn}
+        `;
+        card.querySelectorAll('[data-field]').forEach((input) => {
+          const key = input.getAttribute('data-field');
+          if (!key) return;
+          const eventName = input.type === 'checkbox' ? 'change' : 'input';
+          input.addEventListener(eventName, (ev) => {
+            const el = ev.target;
+            let val;
+            if (el.type === 'checkbox') val = el.checked;
+            else if (el.type === 'number') val = el.value === '' ? '' : Number(el.value);
+            else val = el.value;
+            updateComplexVehicleField(vehicle.uid, key, val);
+            syncComplexVehicleCardHeader(vehicle, card, index);
+          });
+        });
+        const pickStart = card.querySelector('[data-act="pick-start-depot"]');
+        if (pickStart) {
+          pickStart.addEventListener('change', () => {
+            const id = pickStart.value;
+            updateComplexVehicleField(vehicle.uid, 'starting_depot_id', id);
+            if (id) {
+              updateComplexVehicleField(vehicle.uid, 'starting_depot_id', id);
+            }
+            renderComplexVehicles();
+          });
+        }
+        const pickMiddle = card.querySelector('[data-act="pick-middle-depot"]');
+        if (pickMiddle) {
+          pickMiddle.addEventListener('change', () => {
+            updateComplexVehicleField(vehicle.uid, 'middle_depot_id', pickMiddle.value);
+            renderComplexVehicles();
+          });
+        }
+        card.querySelector('[data-act="del-vehicle"]').addEventListener('click', () => removeComplexVehicle(vehicle.uid));
+        syncComplexVehicleCardHeader(vehicle, card, index);
+        list.appendChild(card);
+      });
+      host.innerHTML = hintHtml;
+      host.appendChild(list);
+    }
+
+    let complexOrderEditingUid = null;
+    let complexOrderModalScrollY = 0;
+
+    function parseComplexTimeWindowStart(timeWindow) {
+      if (!timeWindow) return '';
+      const raw = String(timeWindow).trim();
+      const start = raw.split(/\s*[-–—]\s*/)[0].trim();
+      if (!start) return '';
+      if (/^\d{1,2}:\d{2}$/.test(start)) return `${start}:00`;
+      return start;
+    }
+
+    function findComplexDepotById(depotId) {
+      const id = depotId != null ? String(depotId).trim() : '';
+      if (!id) return null;
+      return ensureComplexPlannerState().depots.find((d) => String(d.id).trim() === id) || null;
+    }
+
+    function findComplexOrderIndex(uid) {
+      return ensureComplexPlannerState().orders.findIndex((o) => o.uid === uid);
+    }
+
+    function resolveComplexDepotReadyTime(order, depot, prefs) {
+      const p = prefs || ensureComplexPlannerState().prefs;
+      const stage = order && order.loadingStage ? order.loadingStage : 'morning';
+      if (stage === 'custom') {
+        return order && order.depot_ready_time ? String(order.depot_ready_time).trim() : '';
+      }
+      if (!depot) return '';
+      if (stage === 'morning') {
+        if (p.morningReadyMode === 'loading_start') {
+          return parseComplexTimeWindowStart(depot.loadingWindow && depot.loadingWindow.time_window);
+        }
+        return '';
+      }
+      if (stage === 'day') {
+        const w = depot.refillingWindows && depot.refillingWindows[0];
+        return parseComplexTimeWindowStart(w && w.time_window);
+      }
+      if (stage === 'evening') {
+        const w = depot.refillingWindows && depot.refillingWindows[1];
+        return parseComplexTimeWindowStart(w && w.time_window);
+      }
+      return '';
+    }
+
+    function getNextComplexOrderExportId() {
+      const s = ensureComplexPlannerState();
+      let max = 0;
+      s.orders.forEach((o) => {
+        const n = parseInt(String(o.id || '').trim(), 10);
+        if (Number.isFinite(n) && n > max) max = n;
+      });
+      return String(max + 1);
+    }
+
+    function createDefaultComplexOrder(stage) {
+      const s = ensureComplexPlannerState();
+      const firstDepot = s.depots[0];
+      const depotId = firstDepot && firstDepot.id != null ? String(firstDepot.id).trim() : '';
+      return normalizeComplexOrder({
+        id: getNextComplexOrderExportId(),
+        title: '',
+        address: '',
+        depot_id: depotId,
+        loadingStage: stage || 'morning',
+        time_window: getComplexPlannerConfig().defaultTimeWindow
+      });
+    }
+
+    function addComplexOrder(stage) {
+      ensureComplexPlannerState().orders.push(createDefaultComplexOrder(stage));
+      scheduleComplexPlannerSave();
+      renderComplexOrdersBoard();
+      renderComplexRoutePreview();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function removeComplexOrder(uid) {
+      const idx = findComplexOrderIndex(uid);
+      if (idx < 0) return;
+      if (!window.confirm('Удалить этот заказ из черновика?')) return;
+      ensureComplexPlannerState().orders.splice(idx, 1);
+      scheduleComplexPlannerSave();
+      renderComplexOrdersBoard();
+      renderComplexRoutePreview();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function moveComplexOrderToStage(uid, stage) {
+      if (!COMPLEX_LOADING_STAGES.has(stage)) return;
+      const idx = findComplexOrderIndex(uid);
+      if (idx < 0) return;
+      const order = ensureComplexPlannerState().orders[idx];
+      order.loadingStage = stage;
+      if (stage !== 'custom') order.depot_ready_time = '';
+      scheduleComplexPlannerSave();
+      renderComplexOrdersBoard();
+      renderComplexRoutePreview();
+    }
+
+    function lockPageScrollForComplexOrderModal() {
+      complexOrderModalScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      document.body.classList.add('complex-order-modal-open');
+      document.body.style.top = `-${complexOrderModalScrollY}px`;
+    }
+
+    function unlockPageScrollForComplexOrderModal() {
+      document.body.classList.remove('complex-order-modal-open');
+      document.body.style.top = '';
+      window.scrollTo(0, complexOrderModalScrollY);
+    }
+
+    function syncComplexOrderStageFields() {
+      const stageEl = document.getElementById('complexOrderStageSelect');
+      const readyWrap = document.getElementById('complexOrderReadyTimeWrap');
+      if (!stageEl || !readyWrap) return;
+      const isCustom = stageEl.value === 'custom';
+      readyWrap.hidden = !isCustom;
+    }
+
+    function fillComplexOrderDepotSelect(selectedId) {
+      const select = document.getElementById('complexOrderDepotSelect');
+      if (!select) return;
+      const s = ensureComplexPlannerState();
+      select.innerHTML = buildComplexDepotSelectOptions(s.depots, selectedId).replace(
+        '<option value="">— не выбран —</option>',
+        '<option value="">— выберите склад —</option>'
+      );
+    }
+
+    function getComplexOrderFormControl(form, name) {
+      if (!form) return null;
+      return form.querySelector(`[name="${name}"]`);
+    }
+
+    function setComplexOrderFormValues(order) {
+      const form = document.getElementById('complexOrderForm');
+      if (!form || !order) return;
+      const set = (name, val) => {
+        const el = getComplexOrderFormControl(form, name);
+        if (!el) return;
+        if (el.type === 'checkbox') el.checked = !!val;
+        else el.value = val == null ? '' : String(val);
+      };
+      set('title', order.title);
+      set('address', order.address);
+      set('point.lat', order['point.lat']);
+      set('point.lon', order['point.lon']);
+      set('phone', order.phone);
+      set('depot_id', order.depot_id);
+      set('loadingStage', order.loadingStage);
+      set('depot_ready_time', order.depot_ready_time);
+      set('time_window', order.time_window);
+      set('shared_service_duration_s', order.shared_service_duration_s);
+      set('weight', order.weight);
+      set('units', order.units);
+      set('volume', order.volume);
+      set('depot_expiring_time', order.depot_expiring_time);
+      set('depot_duration_s', order.depot_duration_s);
+      set('comments', order.comments);
+      set('hard_window', order.hard_window);
+      fillComplexOrderDepotSelect(order.depot_id);
+      syncComplexOrderStageFields();
+    }
+
+    function readComplexOrderFormValues() {
+      const form = document.getElementById('complexOrderForm');
+      if (!form) return null;
+      const val = (name) => {
+        const el = getComplexOrderFormControl(form, name);
+        if (!el) return '';
+        if (el.type === 'checkbox') return el.checked;
+        return el.value;
+      };
+      return {
+        title: val('title').trim(),
+        address: val('address').trim(),
+        phone: val('phone').trim(),
+        'point.lat': val('point.lat') === '' ? '' : Number(val('point.lat')),
+        'point.lon': val('point.lon') === '' ? '' : Number(val('point.lon')),
+        depot_id: val('depot_id').trim(),
+        loadingStage: val('loadingStage'),
+        depot_ready_time: val('depot_ready_time').trim(),
+        time_window: val('time_window').trim(),
+        shared_service_duration_s: val('shared_service_duration_s') === '' ? '' : Number(val('shared_service_duration_s')),
+        service_duration_s: val('shared_service_duration_s') === '' ? '' : Number(val('shared_service_duration_s')),
+        weight: val('weight') === '' ? '' : Number(val('weight')),
+        units: val('units') === '' ? '' : Number(val('units')),
+        volume: val('volume') === '' ? '' : Number(val('volume')),
+        depot_expiring_time: val('depot_expiring_time').trim(),
+        depot_duration_s: val('depot_duration_s') === '' ? '' : Number(val('depot_duration_s')),
+        comments: val('comments').trim(),
+        hard_window: val('hard_window')
+      };
+    }
+
+    function openComplexOrderForm(editUid) {
+      hydrateComplexPlannerStateIfNeeded();
+      const modal = document.getElementById('complexOrderModal');
+      const titleEl = document.getElementById('complexOrderModalTitle');
+      if (!modal) return;
+      complexOrderEditingUid = editUid || null;
+      let order;
+      if (editUid) {
+        const idx = findComplexOrderIndex(editUid);
+        order = idx >= 0 ? ensureComplexPlannerState().orders[idx] : null;
+      }
+      if (!order) order = createDefaultComplexOrder('morning');
+      if (titleEl) {
+        titleEl.textContent = editUid ? 'Редактировать заказ' : 'Добавить заказ';
+      }
+      setComplexOrderFormValues(order);
+      modal.hidden = false;
+      modal.setAttribute('aria-hidden', 'false');
+      lockPageScrollForComplexOrderModal();
+      const stageEl = document.getElementById('complexOrderStageSelect');
+      if (stageEl && !stageEl.dataset.complexBound) {
+        stageEl.dataset.complexBound = '1';
+        stageEl.addEventListener('change', syncComplexOrderStageFields);
+      }
+      syncComplexOrderStageFields();
+    }
+
+    function closeComplexOrderForm() {
+      const modal = document.getElementById('complexOrderModal');
+      if (!modal) return;
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+      complexOrderEditingUid = null;
+      unlockPageScrollForComplexOrderModal();
+    }
+
+    function submitComplexOrderForm() {
+      const raw = readComplexOrderFormValues();
+      if (!raw) return;
+      if (!raw.title) {
+        showError('Укажите название клиента.');
+        return;
+      }
+      if (!COMPLEX_LOADING_STAGES.has(raw.loadingStage)) raw.loadingStage = 'morning';
+      if (raw.loadingStage === 'custom' && !raw.depot_ready_time) {
+        showError('Для партии «Своё время» укажите depot_ready_time.');
+        return;
+      }
+      clearError();
+      const s = ensureComplexPlannerState();
+      let order;
+      if (complexOrderEditingUid) {
+        const idx = findComplexOrderIndex(complexOrderEditingUid);
+        if (idx < 0) return;
+        order = s.orders[idx];
+      } else {
+        order = createDefaultComplexOrder(raw.loadingStage);
+        s.orders.push(order);
+      }
+      Object.assign(order, normalizeComplexOrder({
+        ...order,
+        ...raw,
+        uid: order.uid,
+        id: order.id || getNextComplexOrderExportId()
+      }));
+      scheduleComplexPlannerSave();
+      closeComplexOrderForm();
+      renderComplexOrdersBoard();
+      renderComplexRoutePreview();
+      updateComplexPlannerDraftStatus();
+    }
+
+    function buildComplexOrderCardHtml(order) {
+      const depot = findComplexDepotById(order.depot_id);
+      const ready = resolveComplexDepotReadyTime(order, depot, ensureComplexPlannerState().prefs);
+      const readyLabel = ready ? `готовность: ${ready}` : 'готовность: с первой загрузки';
+      const title = (order.title && String(order.title).trim()) || 'Без названия';
+      const addr = (order.address && String(order.address).trim()) || 'адрес не указан';
+      const tw = (order.time_window && String(order.time_window).trim()) || '—';
+      const depotLabel = order.depot_id ? `склад ${order.depot_id}` : 'склад ?';
+      const moveOptions = COMPLEX_STAGE_COLUMNS.map((col) => {
+        const sel = col.key === order.loadingStage ? ' selected' : '';
+        return `<option value="${col.key}"${sel}>${escapeHtml(col.short)}</option>`;
+      }).join('');
+      return `
+        <article class="complex-order-card" data-order-uid="${escapeHtml(order.uid)}">
+          <h4 class="complex-order-card__title">${escapeHtml(title)}</h4>
+          <p class="complex-order-card__meta">
+            ${escapeHtml(addr)}<br />
+            ${escapeHtml(depotLabel)} · ${escapeHtml(readyLabel)}<br />
+            доставка: ${escapeHtml(tw)}
+          </p>
+          <div class="complex-order-card__actions">
+            <button type="button" class="mini-btn" data-act="edit-order">Изменить</button>
+            <button type="button" class="mini-btn" data-act="del-order">Удалить</button>
+            <select data-act="move-stage" aria-label="Партия">${moveOptions}</select>
+          </div>
+        </article>`;
+    }
+
+    function bindComplexOrderCard(card) {
+      const uid = card.getAttribute('data-order-uid');
+      if (!uid) return;
+      card.querySelector('[data-act="edit-order"]').addEventListener('click', () => openComplexOrderForm(uid));
+      card.querySelector('[data-act="del-order"]').addEventListener('click', () => removeComplexOrder(uid));
+      const moveSel = card.querySelector('[data-act="move-stage"]');
+      if (moveSel) {
+        moveSel.addEventListener('change', () => {
+          if (moveSel.value !== moveSel.dataset.prevStage) {
+            moveComplexOrderToStage(uid, moveSel.value);
+          }
+        });
+        const order = ensureComplexPlannerState().orders.find((o) => o.uid === uid);
+        if (order) moveSel.dataset.prevStage = order.loadingStage;
+      }
+    }
+
+    function renderComplexOrdersBoard() {
+      const host = document.getElementById('complexOrdersHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      const prefsRow = document.createElement('div');
+      prefsRow.className = 'complex-orders-prefs';
+      prefsRow.innerHTML = `
+        <label class="muted" style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <span>Утро: depot_ready_time</span>
+          <select id="complexMorningReadyMode">
+            <option value="empty">пусто (первая загрузка)</option>
+            <option value="loading_start">начало окна первой загрузки</option>
+          </select>
+        </label>
+        <button type="button" class="mini-btn" data-act="add-order-inline">+ Добавить заказ</button>
+      `;
+      const board = document.createElement('div');
+      board.className = 'complex-orders-board';
+      COMPLEX_STAGE_COLUMNS.forEach((col) => {
+        const orders = s.orders.filter((o) => o.loadingStage === col.key);
+        const column = document.createElement('div');
+        column.className = `complex-orders-col complex-orders-board__col--${col.key}`;
+        column.innerHTML = `
+          <h3 class="complex-orders-col__title">${escapeHtml(col.title)}</h3>
+          <p class="complex-orders-col__count">${orders.length} заказ(ов)</p>
+          <div class="complex-orders-col__list"></div>
+        `;
+        const list = column.querySelector('.complex-orders-col__list');
+        if (!orders.length) {
+          list.innerHTML = '<p class="muted" style="margin:0;font-size:12px">Пока пусто</p>';
+        } else {
+          orders.forEach((order) => {
+            const wrap = document.createElement('div');
+            wrap.innerHTML = buildComplexOrderCardHtml(order);
+            const card = wrap.firstElementChild;
+            bindComplexOrderCard(card);
+            list.appendChild(card);
+          });
+        }
+        board.appendChild(column);
+      });
+      host.innerHTML = '';
+      host.appendChild(prefsRow);
+      host.appendChild(board);
+      const modeSelect = document.getElementById('complexMorningReadyMode');
+      if (modeSelect) {
+        modeSelect.value = s.prefs.morningReadyMode || 'empty';
+        if (!modeSelect.dataset.complexBound) {
+          modeSelect.dataset.complexBound = '1';
+          modeSelect.addEventListener('change', () => {
+            s.prefs.morningReadyMode = COMPLEX_MORNING_READY_MODES.has(modeSelect.value)
+              ? modeSelect.value
+              : 'empty';
+            scheduleComplexPlannerSave();
+            renderComplexOrdersBoard();
+            renderComplexRoutePreview();
+          });
+        }
+      }
+      prefsRow.querySelector('[data-act="add-order-inline"]').addEventListener('click', () => openComplexOrderForm());
+    }
+
+    function renderComplexRoutePreview() {
+      const host = document.getElementById('complexRoutePreviewHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      const primaryDepot = s.depots[0] || null;
+      const depotLabel = primaryDepot
+        ? ((primaryDepot.ref && String(primaryDepot.ref).trim()) || String(primaryDepot.id).trim() || 'склад')
+        : 'склад ?';
+      const counts = { morning: 0, day: 0, evening: 0, custom: 0 };
+      s.orders.forEach((o) => {
+        if (counts[o.loadingStage] != null) counts[o.loadingStage] += 1;
+      });
+      const steps = [];
+      const pushDepot = () => steps.push({ type: 'depot', text: `Склад «${depotLabel}»` });
+      const pushBatch = (key, label) => {
+        if (counts[key] > 0) steps.push({ type: 'batch', text: `${label}: ${counts[key]} заказ(ов)` });
+      };
+      pushDepot();
+      if (counts.morning > 0) {
+        pushBatch('morning', 'Утренняя партия');
+        pushDepot();
+      }
+      if (counts.day > 0) {
+        pushBatch('day', 'Дневная дозагрузка');
+        pushDepot();
+      }
+      if (counts.evening > 0) {
+        pushBatch('evening', 'Вечерняя дозагрузка');
+        pushDepot();
+      }
+      if (counts.custom > 0) {
+        pushBatch('custom', 'Своё время');
+        pushDepot();
+      }
+      if (!s.orders.length) {
+        host.innerHTML = '<p class="muted">Добавьте заказы по партиям — здесь появится схема: склад → партия → склад → …</p>';
+        return;
+      }
+      const parts = steps.map((step, i) => {
+        const cls = step.type === 'depot' ? 'complex-route-preview__step complex-route-preview__step--depot' : 'complex-route-preview__step';
+        const arrow = i < steps.length - 1 ? '<span class="complex-route-preview__arrow" aria-hidden="true">→</span>' : '';
+        return `<span class="${cls}">${escapeHtml(step.text)}</span>${arrow}`;
+      }).join('');
+      host.innerHTML = `<div class="complex-route-preview" role="list">${parts}</div>`;
+    }
+
+    function countComplexLoadingGroups(orders, prefs) {
+      const groups = new Set();
+      const usedStages = new Set();
+      (orders || []).forEach((order) => {
+        const stage = order.loadingStage || 'morning';
+        if (stage === 'custom') {
+          const depot = findComplexDepotById(order.depot_id);
+          const ready = resolveComplexDepotReadyTime(order, depot, prefs);
+          groups.add(`custom:${ready || order.depot_ready_time || '?'}`);
+        } else if (COMPLEX_LOADING_STAGES.has(stage)) {
+          usedStages.add(stage);
+        }
+      });
+      usedStages.forEach((s) => groups.add(s));
+      return groups.size;
+    }
+
+    function validateComplexPlannerExport() {
+      const s = ensureComplexPlannerState();
+      const errors = [];
+      const warnings = [];
+      if (!s.orders.length) errors.push('Добавьте хотя бы один заказ.');
+      if (!s.depots.length) errors.push('Добавьте хотя бы один склад.');
+      if (!s.vehicles.length) errors.push('Добавьте хотя бы одного курьера/машину.');
+      const depotIds = new Set(s.depots.map((d) => String(d.id).trim()).filter(Boolean));
+      s.orders.forEach((order, i) => {
+        const lat = toNumOrNull(order['point.lat']);
+        const lon = toNumOrNull(order['point.lon']);
+        if (lat == null || lon == null) {
+          errors.push(`Заказ ${i + 1} («${order.title || 'без названия'}»): укажите координаты.`);
+        }
+        const did = order.depot_id != null ? String(order.depot_id).trim() : '';
+        if (did && !depotIds.has(did)) {
+          errors.push(`Заказ «${order.title || did}»: склад ${did} не найден в списке Depot.`);
+        }
+        const depot = findComplexDepotById(did);
+        const ready = resolveComplexDepotReadyTime(order, depot, s.prefs);
+        const twStart = parseComplexTimeWindowStart(order.time_window);
+        if (ready && twStart && ready > twStart) {
+          warnings.push(`Заказ «${order.title || i + 1}»: depot_ready_time позже начала окна доставки клиенту.`);
+        }
+        if (order.loadingStage !== 'morning' && !ready) {
+          warnings.push(`Заказ «${order.title || i + 1}»: для не-утренней партии не задан depot_ready_time.`);
+        }
+      });
+      s.depots.forEach((depot) => {
+        const refill = serializeRefillingWindows(depot.refillingWindows);
+        if (!refill.ok) {
+          errors.push(`Склад «${depot.ref || depot.id}»: ${refill.error}`);
+        }
+        const hasDay = s.orders.some((o) => o.loadingStage === 'day');
+        const hasEve = s.orders.some((o) => o.loadingStage === 'evening');
+        if ((hasDay || hasEve) && !(depot.refillingWindows && depot.refillingWindows.length)) {
+          warnings.push(`Склад «${depot.ref || depot.id}»: есть дневные/вечерние заказы, но нет окон дозагрузки.`);
+        }
+      });
+      const orderDepotIds = new Set(s.orders.map((o) => String(o.depot_id).trim()).filter(Boolean));
+      if (orderDepotIds.size > 1) {
+        const allAllow = s.vehicles.every((v) => v.allow_different_depots_in_route);
+        if (!allAllow) {
+          warnings.push('Заказы с разных складов: включите allow_different_depots_in_route у курьера.');
+        }
+      }
+      const multiRefillSlots = getComplexDepotMultiRefillingSlotCount(s.depots);
+      if (multiRefillSlots > 0) {
+        warnings.push(
+          `В Excel будут колонки time_windows_refilling.time_windows.0…${multiRefillSlots - 1}: в UI Яндекса возможны жёлтые предупреждения «неизвестный заголовок», планирование при этом обычно проходит.`
+        );
+      }
+      const loadGroups = countComplexLoadingGroups(s.orders, s.prefs);
+      s.vehicles.forEach((v) => {
+        const runs = Number(v.max_runs);
+        if (!Number.isFinite(runs) || runs < loadGroups) {
+          warnings.push(`Курьер «${v.ref || v.id}»: max_runs (${v.max_runs || '—'}) меньше числа групп загрузки (${loadGroups}).`);
+        }
+      });
+      return { errors, warnings };
+    }
+
+    function showComplexPlannerErrors(errors) {
+      showError(errors.join('\n'));
+    }
+
+    async function showComplexPlannerWarnings(warnings) {
+      if (!warnings.length) return true;
+      const text = warnings.join('\n\n');
+      return window.confirm(`Предупреждения (${warnings.length}):\n\n${text}\n\nВсё равно скачать XLSX?`);
+    }
+
+    function gatherComplexPlannerRows() {
+      const s = ensureComplexPlannerState();
+      let seq = 1;
+      return s.orders.map((order) => {
+        const depot = findComplexDepotById(order.depot_id);
+        const depotReady = resolveComplexDepotReadyTime(order, depot, s.prefs);
+        const exportId = order.id && String(order.id).trim() ? order.id : seq++;
+        return {
+          id: exportId,
+          'point.lat': toNumOrNull(order['point.lat']) ?? '',
+          'point.lon': toNumOrNull(order['point.lon']) ?? '',
+          title: order.title || '',
+          address: order.address || '',
+          phone: order.phone || '',
+          time_window: formatComplexTimeRangeForExcel(order.time_window || getComplexPlannerConfig().defaultTimeWindow),
+          hard_window: order.hard_window,
+          comments: order.comments || '',
+          shared_service_duration_s: order.shared_service_duration_s ?? '',
+          service_duration_s: order.service_duration_s ?? order.shared_service_duration_s ?? '',
+          'shipment_size.weight_kg': order.weight ?? '',
+          'shipment_size.units': order.units ?? '',
+          'shipment_size.volume_cbm': order.volume ?? '',
+          type: 'delivery',
+          depot_id: order.depot_id || '',
+          depot_ready_time: depotReady,
+          depot_expiring_time: order.depot_expiring_time || '',
+          depot_duration_s: order.depot_duration_s ?? ''
+        };
+      });
+    }
+
+    function gatherComplexDepotExportRows() {
+      const s = ensureComplexPlannerState();
+      const errors = [];
+      const rows = s.depots.map((depot) => {
+        const refill = serializeRefillingWindows(depot.refillingWindows);
+        if (!refill.ok) {
+          errors.push(`Склад «${depot.ref || depot.id}»: ${refill.error}`);
+          return null;
+        }
+        const lw = depot.loadingWindow || {};
+        const loadTw = formatComplexTimeRangeForExcel(lw.time_window);
+        return {
+          id: depot.id || '',
+          ref: depot.ref || '',
+          'point.lat': depot['point.lat'] ?? '',
+          'point.lon': depot['point.lon'] ?? '',
+          time_window: formatComplexTimeRangeForExcel(depot.time_window),
+          'time_windows_loading.time_window': loadTw,
+          'time_windows_loading.hard_time_window': formatComplexDepotHardTimeWindow(lw),
+          service_duration_s: depot.service_duration_s ?? '',
+          ...(refill.excelFields || {})
+        };
+      }).filter(Boolean);
+      return { rows, errors };
+    }
+
+    function buildComplexOrdersAoA(rows) {
+      return makeAoA(rows, COMPLEX_EXPORT_SCHEMAS.orders);
+    }
+
+    function buildComplexVehiclesAoA() {
+      return makeAoA(ensureComplexPlannerState().vehicles, COMPLEX_EXPORT_SCHEMAS.vehicles);
+    }
+
+    function buildComplexDepotsAoA(rows) {
+      const schema = buildComplexDepotExportSchema(ensureComplexPlannerState().depots);
+      return makeAoA(rows, schema);
+    }
+
+    function buildComplexOptionsAoA() {
+      const opts = ensureComplexPlannerState().options;
+      const schema = COMPLEX_EXPORT_SCHEMAS.options;
+      const row = {
+        penalize_late_service: opts.penalize_late_service,
+        load_when_ready: opts.load_when_ready
+      };
+      const headerKeys = schema.columns.map((c) => c.key);
+      const dataRow = schema.columns.map((c) => c.getValue(row));
+      return [headerKeys, dataRow];
+    }
+
+    async function exportComplexPlannerXlsx() {
+      const btn = ensureActionButton(document.getElementById('complexExportXlsx'));
+      hydrateComplexPlannerStateIfNeeded();
+      syncComplexPlannerOptionsFromUi();
+      const validation = validateComplexPlannerExport();
+      if (validation.errors.length) {
+        showComplexPlannerErrors(validation.errors);
+        return;
+      }
+      if (validation.warnings.length) {
+        const proceed = await showComplexPlannerWarnings(validation.warnings);
+        if (!proceed) return;
+      }
+      clearError();
+      setActionButtonState(btn, 'loading', { loadingText: 'Собираем таблицу…' });
+      const ok = await ensureXlsxReady();
+      if (!ok) {
+        showError('Не удалось загрузить библиотеку XLSX.');
+        setActionButtonState(btn, 'idle');
+        return;
+      }
+      const orderRows = gatherComplexPlannerRows();
+      const depotResult = gatherComplexDepotExportRows();
+      if (depotResult.errors.length) {
+        showComplexPlannerErrors(depotResult.errors);
+        setActionButtonState(btn, 'idle');
+        return;
+      }
+      const prefix = getComplexPlannerConfig().exportFilePrefix;
+      const fileName = `${prefix}_${formatDateForFile(new Date())}.xlsx`;
+      try {
+        const wb = XLSX.utils.book_new();
+        const ordersSheet = XLSX.utils.aoa_to_sheet(buildComplexOrdersAoA(orderRows));
+        ordersSheet['!cols'] = COMPLEX_EXPORT_SCHEMAS.orders.columns.map((c) => ({ wch: c.width || 18 }));
+        XLSX.utils.book_append_sheet(wb, ordersSheet, COMPLEX_EXPORT_SCHEMAS.orders.sheetName);
+        const vehiclesSheet = XLSX.utils.aoa_to_sheet(buildComplexVehiclesAoA());
+        vehiclesSheet['!cols'] = COMPLEX_EXPORT_SCHEMAS.vehicles.columns.map((c) => ({ wch: c.width || 18 }));
+        XLSX.utils.book_append_sheet(wb, vehiclesSheet, COMPLEX_EXPORT_SCHEMAS.vehicles.sheetName);
+        const depotExportSchema = buildComplexDepotExportSchema(ensureComplexPlannerState().depots);
+        const depotsSheet = XLSX.utils.aoa_to_sheet(buildComplexDepotsAoA(depotResult.rows));
+        depotsSheet['!cols'] = depotExportSchema.columns.map((c) => ({ wch: c.width || 18 }));
+        XLSX.utils.book_append_sheet(wb, depotsSheet, COMPLEX_EXPORT_SCHEMAS.depots.sheetName);
+        const optionsSheet = XLSX.utils.aoa_to_sheet(buildComplexOptionsAoA());
+        optionsSheet['!cols'] = COMPLEX_EXPORT_SCHEMAS.options.columns.map((c) => ({ wch: c.width || 18 }));
+        XLSX.utils.book_append_sheet(wb, optionsSheet, COMPLEX_EXPORT_SCHEMAS.options.sheetName);
+        try {
+          XLSX.writeFile(wb, fileName, { compression: true, bookSST: true });
+        } catch (writeErr) {
+          const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = fileName;
+          document.body.appendChild(link);
+          link.click();
+          URL.revokeObjectURL(link.href);
+          link.remove();
+        }
+        setActionButtonState(btn, 'success', { successText: 'Скачано!' });
+        showNotify(`Файл «${fileName}» (4 листа) скачан — можно загружать в Яндекс Маршрутизацию.`, 'success', 5500);
+        if (APP.yandexPlanningUrl) {
+          window.open(APP.yandexPlanningUrl, '_blank', 'noopener,noreferrer');
+        }
+        setTimeout(() => setActionButtonState(btn, 'idle'), 2200);
+      } catch (err) {
+        console.error(err);
+        showError('Не удалось сформировать Excel-файл. Откройте консоль для подробностей.');
+        setActionButtonState(btn, 'idle');
+      }
+    }
+
+    function syncComplexPlannerOptionsToUi() {
+      const s = ensureComplexPlannerState();
+      const penalize = document.getElementById('complexOptPenalizeLate');
+      const loadReady = document.getElementById('complexOptLoadWhenReady');
+      if (penalize) penalize.checked = !!s.options.penalize_late_service;
+      if (loadReady) loadReady.checked = !!s.options.load_when_ready;
+    }
+
+    function syncComplexPlannerOptionsFromUi() {
+      const s = ensureComplexPlannerState();
+      const penalize = document.getElementById('complexOptPenalizeLate');
+      const loadReady = document.getElementById('complexOptLoadWhenReady');
+      if (penalize) s.options.penalize_late_service = penalize.checked;
+      if (loadReady) s.options.load_when_ready = loadReady.checked;
+      scheduleComplexPlannerSave();
+    }
+
+    function initComplexPlannerOptionsUi() {
+      const penalize = document.getElementById('complexOptPenalizeLate');
+      const loadReady = document.getElementById('complexOptLoadWhenReady');
+      const bind = (el) => {
+        if (!el || el.dataset.complexBound) return;
+        el.dataset.complexBound = '1';
+        el.addEventListener('change', syncComplexPlannerOptionsFromUi);
+      };
+      bind(penalize);
+      bind(loadReady);
+    }
+
+    function initComplexOrderModal() {
+      const modal = document.getElementById('complexOrderModal');
+      const backdrop = document.getElementById('complexOrderModalBackdrop');
+      const closeBtn = document.getElementById('complexOrderModalClose');
+      const cancelBtn = document.getElementById('complexOrderCancel');
+      const submitBtn = document.getElementById('complexOrderSubmit');
+      const form = document.getElementById('complexOrderForm');
+      if (backdrop) backdrop.addEventListener('click', closeComplexOrderForm);
+      if (closeBtn) closeBtn.addEventListener('click', closeComplexOrderForm);
+      if (cancelBtn) cancelBtn.addEventListener('click', closeComplexOrderForm);
+      if (submitBtn) submitBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        submitComplexOrderForm();
+      });
+      if (form) {
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          submitComplexOrderForm();
+        });
+      }
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const m = document.getElementById('complexOrderModal');
+        if (m && !m.hidden) closeComplexOrderForm();
+      });
+    }
+
+    function getComplexPlannerScreenEl() {
+      return document.getElementById('complexPlannerScreen');
+    }
+
+    function openComplexPlanner() {
+      const screen = getComplexPlannerScreenEl();
+      if (!screen) return;
+      hydrateComplexPlannerStateIfNeeded();
+      complexPlannerScreenOpen = true;
+      document.body.classList.add('complex-planner-open');
+      screen.hidden = false;
+      screen.setAttribute('aria-hidden', 'false');
+      syncComplexPlannerOptionsToUi();
+      renderComplexPlanner();
+    }
+
+    function closeComplexPlanner() {
+      const screen = getComplexPlannerScreenEl();
+      complexPlannerScreenOpen = false;
+      document.body.classList.remove('complex-planner-open');
+      if (screen) {
+        screen.hidden = true;
+        screen.setAttribute('aria-hidden', 'true');
+      }
+      if (complexPlannerSaveTimer) {
+        clearTimeout(complexPlannerSaveTimer);
+        complexPlannerSaveTimer = null;
+        saveComplexPlannerDraft();
+      }
+    }
+
+    function renderComplexPlanner() {
+      if (!complexPlannerScreenOpen) return;
+      const root = document.getElementById('complexPlannerRoot');
+      if (!root) return;
+      hydrateComplexPlannerStateIfNeeded();
+      updateComplexPlannerDraftStatus();
+      renderComplexDepots();
+      renderComplexVehicles();
+      renderComplexOrdersBoard();
+      renderComplexRoutePreview();
+    }
+
+    function initComplexPlannerUi() {
+      const openBtn = document.getElementById('openComplexPlanner');
+      const closeBtn = document.getElementById('closeComplexPlanner');
+      const addDepotBtn = document.getElementById('complexAddDepot');
+      if (openBtn) openBtn.addEventListener('click', openComplexPlanner);
+      if (closeBtn) closeBtn.addEventListener('click', closeComplexPlanner);
+      if (addDepotBtn) addDepotBtn.addEventListener('click', () => {
+        hydrateComplexPlannerStateIfNeeded();
+        addComplexDepot();
+      });
+      const addVehicleBtn = document.getElementById('complexAddVehicle');
+      if (addVehicleBtn) addVehicleBtn.addEventListener('click', () => {
+        hydrateComplexPlannerStateIfNeeded();
+        addComplexVehicle();
+      });
+      const addOrderBtn = document.getElementById('complexAddOrder');
+      if (addOrderBtn) addOrderBtn.addEventListener('click', () => {
+        hydrateComplexPlannerStateIfNeeded();
+        openComplexOrderForm();
+      });
+      initComplexOrderModal();
+      initComplexPlannerOptionsUi();
+      const exportBtn = document.getElementById('complexExportXlsx');
+      if (exportBtn) exportBtn.addEventListener('click', exportComplexPlannerXlsx);
+      const demoBtn = document.getElementById('complexLoadDemo');
+      if (demoBtn) demoBtn.addEventListener('click', () => {
+        hydrateComplexPlannerStateIfNeeded();
+        loadComplexPlannerDemo();
+      });
+    }
+
     // ===== Инициализация =====
     (function init() {
       const yandexLink = document.getElementById('yandexPlanningLink');
@@ -4620,6 +6544,7 @@
       refreshModeUiAfterDataChange();
       initSheetOnboarding();
       initExtraOrderModal();
+      initComplexPlannerUi();
       startSheetCacheUiTimer();
       updateSheetCacheUi();
       window.app = {
@@ -4636,9 +6561,135 @@
         setActiveBusinessMode,
         showSheetOnboarding,
         dismissSheetOnboarding,
-        EXPORT_SCHEMAS
+        EXPORT_SCHEMAS,
+        openComplexPlanner,
+        closeComplexPlanner,
+        renderComplexPlanner,
+        complexPlannerState: () => complexPlannerState,
+        createEmptyComplexPlannerState,
+        loadComplexPlannerDraft,
+        saveComplexPlannerDraft,
+        resetComplexPlannerDraft,
+        scheduleComplexPlannerSave,
+        getComplexPlannerConfig,
+        COMPLEX_EXPORT_SCHEMAS,
+        serializeRefillingWindows,
+        serializeLoadingWindow,
+        gatherComplexPlannerRows,
+        exportComplexPlannerXlsx,
+        validateComplexPlannerExport,
+        addComplexDepot,
+        removeComplexDepot,
+        renderComplexDepots,
+        addComplexVehicle,
+        removeComplexVehicle,
+        renderComplexVehicles,
+        resolveComplexDepotReadyTime,
+        openComplexOrderForm,
+        renderComplexOrdersBoard,
+        renderComplexRoutePreview,
+        moveComplexOrderToStage,
+        loadComplexPlannerDemo,
+        buildComplexPlannerDemoPayload
       };
     })();
+
+    function runComplexPlannerSelfTests(assert) {
+      const savedPlanner = complexPlannerState;
+      const savedHydrated = complexPlannerStateHydrated;
+      try {
+        assert('EXPORT_SCHEMAS: 3 sheets only', Object.keys(EXPORT_SCHEMAS).length === 3);
+        assert('EXPORT_SCHEMAS: no Options', !EXPORT_SCHEMAS.options);
+        assert('COMPLEX_EXPORT_SCHEMAS: 4 sheets', Object.keys(COMPLEX_EXPORT_SCHEMAS).length === 4);
+        assert('COMPLEX has Options', COMPLEX_EXPORT_SCHEMAS.options.sheetName === 'Options');
+        const vehKeys = COMPLEX_EXPORT_SCHEMAS.vehicles.columns.map((c) => c.key);
+        assert('COMPLEX Vehicles has max_runs', vehKeys.includes('max_runs'));
+        assert('COMPLEX Vehicles no shifts.0.max_runs', !vehKeys.includes('shifts.0.max_runs'));
+        const typeCol = COMPLEX_EXPORT_SCHEMAS.orders.columns.find((c) => c.key === 'type');
+        assert('COMPLEX Orders type column', typeCol && typeCol.getValue({}) === 'delivery');
+
+        const multiRefill = serializeRefillingWindows([
+          { time_window: '12:00-13:00' },
+          { time_window: '16:00-17:00' }
+        ]);
+        assert('multi refilling uses time_windows.N keys', multiRefill.ok === true
+          && multiRefill.excelFields['time_windows_refilling.time_windows.0.time_window'] === '12:00:00-13:00:00'
+          && multiRefill.excelFields['time_windows_refilling.time_windows.1.time_window'] === '16:00:00-17:00:00'
+          && !multiRefill.excelFields['time_windows_refilling.time_window']);
+        const singleRefill = serializeRefillingWindows([{ time_window: '12:00-13:00', hard_time_window: '' }]);
+        assert('single refilling uses flat column', singleRefill.excelFields['time_windows_refilling.time_window'] === '12:00:00-13:00:00');
+
+        assert('vehicle depot: stripped on export', formatComplexVehicleStartFinish('depot:501', { visit_depot_at_start: true }) === '');
+
+        complexPlannerState = normalizeComplexPlannerState({
+          depots: [{
+            id: '1',
+            ref: 'Склад 1',
+            'point.lat': 55.75,
+            'point.lon': 37.61,
+            time_window: '07:00-21:00',
+            loadingWindow: { time_window: '07:00-09:00', hard_time_window: '' },
+            refillingWindows: [{ time_window: '12:00-13:00', hard_time_window: '' }]
+          }],
+          vehicles: [{ id: 'v1', ref: 'Курьер', max_runs: 2, allow_different_depots_in_route: true }],
+          orders: [{
+            id: '1',
+            title: 'Клиент A',
+            address: 'ул. 1',
+            'point.lat': 55.76,
+            'point.lon': 37.62,
+            depot_id: '1',
+            loadingStage: 'day',
+            weight: 12,
+            units: 3,
+            volume: 0.4
+          }],
+          options: { penalize_late_service: true, load_when_ready: false },
+          prefs: { morningReadyMode: 'empty' }
+        });
+        complexPlannerStateHydrated = true;
+        const rows = gatherComplexPlannerRows();
+        assert('gather maps weight', rows[0]['shipment_size.weight_kg'] === 12);
+        assert('gather maps units', rows[0]['shipment_size.units'] === 3);
+        assert('gather maps volume', rows[0]['shipment_size.volume_cbm'] === 0.4);
+        assert('resolve day depot_ready', rows[0].depot_ready_time === '12:00:00');
+        const depotRows = gatherComplexDepotExportRows();
+        assert('depot export rows', depotRows.rows.length === 1 && !depotRows.errors.length);
+        const optAoA = buildComplexOptionsAoA();
+        assert('Options AoA: keys + one data row', optAoA.length === 2);
+        assert('Options penalize TRUE string', optAoA[1][0] === 'TRUE');
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildComplexOrdersAoA(rows)), 'Orders');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildComplexVehiclesAoA()), 'Vehicles');
+        const depotSchema = buildComplexDepotExportSchema(complexPlannerState.depots);
+        assert('depot export multi slots for demo', depotSchema.multiRefillingSlots === 2);
+        assert('depot export only 2 indexed time cols', depotSchema.columns.filter((c) => /time_windows_refilling\.time_windows\.\d+\.time_window$/.test(c.key)).length === 2);
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(buildComplexDepotsAoA(depotRows.rows)), 'Depot');
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(optAoA), 'Options');
+        assert('complex workbook 4 sheets', wb.SheetNames.length === 4);
+        assert('complex sheet names', wb.SheetNames.join(',') === 'Orders,Vehicles,Depot,Options');
+
+        complexPlannerState.orders = [];
+        const vNoOrders = validateComplexPlannerExport();
+        assert('validate errors if no orders', vNoOrders.errors.length > 0);
+        complexPlannerState = normalizeComplexPlannerState({
+          depots: complexPlannerState.depots,
+          vehicles: [{ id: 'v1', max_runs: 1 }],
+          orders: [
+            { title: 'C1', 'point.lat': 55, 'point.lon': 37, depot_id: '1', loadingStage: 'custom', depot_ready_time: '12:00:00' },
+            { title: 'C2', 'point.lat': 55, 'point.lon': 37, depot_id: '1', loadingStage: 'custom', depot_ready_time: '16:00:00' }
+          ],
+          options: { penalize_late_service: false, load_when_ready: false },
+          prefs: { morningReadyMode: 'empty' }
+        });
+        assert('custom groups count', countComplexLoadingGroups(complexPlannerState.orders, complexPlannerState.prefs) === 2);
+        const vWarn = validateComplexPlannerExport();
+        assert('max_runs warning for 2 custom groups', vWarn.warnings.some((w) => /max_runs/i.test(w)));
+      } finally {
+        complexPlannerState = savedPlanner;
+        complexPlannerStateHydrated = savedHydrated;
+      }
+    }
 
     function runSelfTestsIfEnabled() {
       let enabled = false;
@@ -4729,6 +6780,8 @@
         assert('highlight handles special chars safely', ok === true);
         const res = highlight('Тест .+? скобки ( ) и [квадратные] и \\ бэкслэш', '[квадратные]');
         assert('highlight actually marks text', /<mark>\[квадратные\]<\/mark>/.test(res));
+
+        runComplexPlannerSelfTests(assert);
       } finally {
         MODE_IDS.forEach((modeId) => {
           storesByMode[modeId] = JSON.parse(JSON.stringify(snapshotModes[modeId]));

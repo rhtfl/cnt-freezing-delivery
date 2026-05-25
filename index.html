@@ -29,10 +29,15 @@
     <header>
       <div class="header-row">
         <h1>Доставка заморозки</h1>
-        <div class="mode-switch" role="group" aria-label="Режим работы">
-          <button type="button" class="mode-btn" data-mode="horeca" aria-pressed="true">HoReCa</button>
-          <button type="button" class="mode-btn" data-mode="gallery" aria-pressed="false">Галереи</button>
-          <button type="button" class="mode-btn" data-mode="all" aria-pressed="false">Все</button>
+        <div class="header-row__actions">
+          <div class="mode-switch" role="group" aria-label="Режим работы">
+            <button type="button" class="mode-btn" data-mode="horeca" aria-pressed="true">HoReCa</button>
+            <button type="button" class="mode-btn" data-mode="gallery" aria-pressed="false">Галереи</button>
+            <button type="button" class="mode-btn" data-mode="all" aria-pressed="false">Все</button>
+          </div>
+          <button type="button" id="openComplexPlanner" class="mini-btn complex-planner-entry">
+            Сложное планирование
+          </button>
         </div>
       </div>
     </header>
@@ -163,6 +168,156 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <div id="complexPlannerScreen" class="complex-planner" hidden aria-hidden="true">
+    <header class="complex-planner__header">
+      <div class="complex-planner__toolbar">
+        <button type="button" id="closeComplexPlanner" class="mini-btn complex-planner__back">
+          ← Вернуться к обычному режиму
+        </button>
+        <h1 class="complex-planner__title">Сложное планирование с дозагрузками</h1>
+        <div class="complex-planner__toolbar-actions">
+          <button type="button" class="mini-btn" id="complexAddOrder">Добавить заказ</button>
+          <button type="button" class="mini-btn" id="complexAddDepot">Добавить склад</button>
+          <button type="button" class="mini-btn" id="complexAddVehicle">Добавить курьера/машину</button>
+          <button type="button" class="mini-btn" id="complexLoadDemo">Загрузить демо (Москва/МО)</button>
+          <button type="button" class="mini-btn" id="complexExportXlsx">Скачать XLSX для Яндекс Маршрутизации</button>
+        </div>
+      </div>
+      <p class="complex-planner__intro muted">
+        Отдельный режим для маршрутов с дозагрузками. Основное расписание и экспорт из Google Sheets здесь не используются.
+      </p>
+      <p id="complexPlannerDraftStatus" class="muted complex-planner__draft-status" aria-live="polite"></p>
+      <div class="complex-planner__options" role="group" aria-label="Опции планирования">
+        <label class="complex-planner__option">
+          <input type="checkbox" id="complexOptPenalizeLate" />
+          <span>Жёстко учитывать полное время загрузки/дозагрузки внутри окна склада (penalize_late_service)</span>
+        </label>
+        <label class="complex-planner__option">
+          <input type="checkbox" id="complexOptLoadWhenReady" />
+          <span>Погрузка по мере готовности заказов (load_when_ready)</span>
+        </label>
+      </div>
+    </header>
+    <main class="complex-planner__main" id="complexPlannerRoot" aria-live="polite">
+      <section class="card complex-planner__section" id="complexDepotsSection">
+        <h2 class="section-title">Склады и окна загрузки</h2>
+        <div id="complexDepotsHost"></div>
+      </section>
+      <section class="card complex-planner__section" id="complexVehiclesSection">
+        <h2 class="section-title">Курьер / машина</h2>
+        <div id="complexVehiclesHost"></div>
+      </section>
+      <section class="card complex-planner__section" id="complexOrdersSection">
+        <h2 class="section-title">Партии заказов</h2>
+        <div id="complexOrdersHost"></div>
+      </section>
+      <section class="card complex-planner__section" id="complexRoutePreviewSection">
+        <h2 class="section-title">Структура маршрута</h2>
+        <div id="complexRoutePreviewHost"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="complexOrderModal" class="app-modal complex-order-modal" hidden aria-hidden="true">
+    <button type="button" class="app-modal__backdrop" id="complexOrderModalBackdrop" aria-label="Закрыть"></button>
+    <div class="app-modal__panel complex-order-modal__panel" role="dialog" aria-labelledby="complexOrderModalTitle" aria-modal="true">
+      <div class="complex-order-modal__header">
+        <h2 id="complexOrderModalTitle" class="complex-order-modal__title">Заказ</h2>
+        <button type="button" class="complex-order-modal__close" id="complexOrderModalClose" aria-label="Закрыть">×</button>
+      </div>
+      <form id="complexOrderForm" class="complex-order-modal__body" novalidate>
+        <div class="config-grid">
+          <div class="config-field">
+            <label>Клиент / название</label>
+            <input type="text" name="title" required placeholder="Магазин" />
+          </div>
+          <div class="config-field">
+            <label>Адрес</label>
+            <input type="text" name="address" placeholder="ул. Пример, 1" />
+          </div>
+          <div class="config-field">
+            <label>Широта</label>
+            <input type="number" name="point.lat" step="any" placeholder="55.75" />
+          </div>
+          <div class="config-field">
+            <label>Долгота</label>
+            <input type="number" name="point.lon" step="any" placeholder="37.62" />
+          </div>
+          <div class="config-field">
+            <label>Телефон</label>
+            <input type="text" name="phone" placeholder="+7..." />
+          </div>
+          <div class="config-field">
+            <label>Склад (depot_id)</label>
+            <select name="depot_id" id="complexOrderDepotSelect"></select>
+          </div>
+          <div class="config-field">
+            <label>Партия загрузки</label>
+            <select name="loadingStage" id="complexOrderStageSelect">
+              <option value="morning">Утро / первая загрузка</option>
+              <option value="day">День / дозагрузка 1</option>
+              <option value="evening">Вечер / дозагрузка 2</option>
+              <option value="custom">Своё время</option>
+            </select>
+          </div>
+          <div class="config-field" id="complexOrderReadyTimeWrap" hidden>
+            <label>depot_ready_time</label>
+            <input type="text" name="depot_ready_time" placeholder="12:00:00" />
+            <p class="complex-hint muted">Жёсткое время готовности заказа на складе. Не путать с окном доставки клиенту.</p>
+          </div>
+          <div class="config-field">
+            <label>Окно доставки клиенту (time_window)</label>
+            <input type="text" name="time_window" placeholder="10:00-21:00" />
+            <p class="complex-hint muted">Только окно доставки клиенту, не время забора со склада.</p>
+          </div>
+          <div class="config-field">
+            <label>Обслуживание у клиента, сек</label>
+            <input type="number" name="shared_service_duration_s" step="1" min="0" placeholder="300" />
+          </div>
+        </div>
+        <details class="complex-order-modal__more">
+          <summary>Дополнительно</summary>
+          <div class="config-grid">
+            <div class="config-field">
+              <label>Вес, кг</label>
+              <input type="number" name="weight" step="any" min="0" />
+            </div>
+            <div class="config-field">
+              <label>Мест</label>
+              <input type="number" name="units" step="1" min="0" />
+            </div>
+            <div class="config-field">
+              <label>Объём, м³</label>
+              <input type="number" name="volume" step="any" min="0" />
+            </div>
+            <div class="config-field">
+              <label>depot_expiring_time</label>
+              <input type="text" name="depot_expiring_time" placeholder="необязательно" />
+            </div>
+            <div class="config-field">
+              <label>depot_duration_s</label>
+              <input type="number" name="depot_duration_s" step="1" min="0" />
+            </div>
+            <div class="config-field">
+              <label>Комментарий</label>
+              <input type="text" name="comments" />
+            </div>
+            <div class="config-flag">
+              <label>
+                <input type="checkbox" name="hard_window" checked />
+                <span>Жёсткое окно доставки (hard_window)</span>
+              </label>
+            </div>
+          </div>
+        </details>
+      </form>
+      <div class="complex-order-modal__footer">
+        <button type="button" class="extra-order-btn extra-order-btn--ghost" id="complexOrderCancel">Отмена</button>
+        <button type="button" class="extra-order-btn extra-order-btn--primary" id="complexOrderSubmit">Сохранить заказ</button>
+      </div>
+    </div>
   </div>
 
   <div id="extraOrderModal" class="app-modal extra-order-modal" hidden aria-hidden="true">

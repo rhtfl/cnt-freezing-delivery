@@ -21,6 +21,12 @@ window.APP_CONFIG = {
   /** Срок хранения импорта из Google Sheets в localStorage (минуты) */
   sheetCacheTtlMinutes: 30,
 
+  /** Отдельный модуль «Сложное планирование с дозагрузками» (не связан с modes.horeca/gallery). */
+  complexPlanner: {
+    exportFilePrefix: 'Сложное_планирование',
+    defaultTimeWindow: '10:00-21:00'
+  },
+
   /**
    * Имена листов в Google Sheets (если у режима нет своих sheetNameByDay).
    * Расписание — по дням недели; справочники — фиксированные имена.
