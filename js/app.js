@@ -1493,7 +1493,15 @@
       extraOrderFormBlocks: document.getElementById('extraOrderFormBlocks'),
       extraOrderAddBlockBtn: document.getElementById('extraOrderAddBlock'),
       extraOrderCancelBtn: document.getElementById('extraOrderCancel'),
-      extraOrderSubmitBtn: document.getElementById('extraOrderSubmit')
+      extraOrderSubmitBtn: document.getElementById('extraOrderSubmit'),
+      storePointEditModal: document.getElementById('storePointEditModal'),
+      storePointEditModalBackdrop: document.getElementById('storePointEditModalBackdrop'),
+      storePointEditModalClose: document.getElementById('storePointEditModalClose'),
+      storePointEditModalDay: document.getElementById('storePointEditModalDay'),
+      storePointEditModalPointName: document.getElementById('storePointEditModalPointName'),
+      storePointEditForm: document.getElementById('storePointEditForm'),
+      storePointEditCancelBtn: document.getElementById('storePointEditCancel'),
+      storePointEditSubmitBtn: document.getElementById('storePointEditSubmit')
     };
 
     const SHEET_ONBOARDING_KEY = 'sheet_onboarding_done';
@@ -1846,6 +1854,7 @@
       li.className = row.__isExtra ? 'store store--extra store--lazy-enter' : 'store store--lazy-enter';
       li.dataset.index = String(idx);
       li.dataset.uid = row.uid || '';
+      li.dataset.day = day;
       if (row.__isExtra) {
         li.dataset.isExtra = 'true';
         li.dataset.extraId = row.id || '';
@@ -1858,29 +1867,54 @@
       if (row.__sourceMode) li.dataset.sourceMode = row.__sourceMode;
       if (state.selected.has(row.uid)) li.classList.add('selected');
 
+      const canEditMeta = !row.__isStart;
       const hasCoords = row.lat != null && row.lng != null;
-      const addrHtml = row.address
-        ? hasCoords
+      let addrHtml = '';
+      if (canEditMeta) {
+        if (row.address) {
+          addrHtml = `<span class="store-meta-editable muted" data-store-edit="1" role="button" tabindex="0" title="Нажмите, чтобы изменить">${highlight(escapeHtml(row.address), state.query)}</span>`;
+          if (hasCoords) {
+            addrHtml += `<a class="addr-map-link muted" href="http://maps.yandex.ru/?text=${encodeURIComponent(row.lat + ',' + row.lng)}" target="_blank" rel="noopener" title="Открыть на карте">&nbsp;↗</a>`;
+          }
+        } else {
+          addrHtml = '<span class="store-meta-editable store-meta-editable--empty muted" data-store-edit="1" role="button" tabindex="0" title="Нажмите, чтобы добавить">+ адрес</span>';
+        }
+      } else if (row.address) {
+        addrHtml = hasCoords
           ? `<a class="muted addr-link" href="http://maps.yandex.ru/?text=${encodeURIComponent(row.lat + ',' + row.lng)}" target="_blank" rel="noopener">${highlight(escapeHtml(row.address), state.query)}</a><span style="opacity:.6">&nbsp;↗</span>`
-          : `<span class="muted">${highlight(escapeHtml(row.address), state.query)}</span>`
-        : '';
+          : `<span class="muted">${highlight(escapeHtml(row.address), state.query)}</span>`;
+      }
       const mins = Number.isFinite(row.delivery_seconds) ? Math.round(row.delivery_seconds / 60) : null;
-      const timeWindow = row.time_window ? `<span class="pill">⏰ ${escapeHtml(row.time_window)}</span>` : '';
-      const depot = row.depot_name || row.depot_id ? `<span class="pill" title="Склад">🏷️ ${escapeHtml(row.depot_name ? `${row.depot_name}` : `ID ${row.depot_id}`)}</span>` : '';
-      const serviceTime = mins !== null ? `<span class="pill" title="Время на доставку (сек): ${row.delivery_seconds}">⏱ ${mins} мин</span>` : '';
+      const depotLabel = row.depot_name ? `${row.depot_name}` : (row.depot_id ? `ID ${row.depot_id}` : '');
+      const timeWindow = canEditMeta
+        ? storeMetaEditablePill(row.time_window ? `⏰ ${escapeHtml(row.time_window)}` : '', '+ время')
+        : (row.time_window ? `<span class="pill">⏰ ${escapeHtml(row.time_window)}</span>` : '');
+      const depot = canEditMeta
+        ? storeMetaEditablePill(depotLabel ? `🏷️ ${escapeHtml(depotLabel)}` : '', '+ склад')
+        : (depotLabel ? `<span class="pill" title="Склад">🏷️ ${escapeHtml(depotLabel)}</span>` : '');
+      const serviceTime = canEditMeta
+        ? storeMetaEditablePill(
+          mins !== null ? `⏱ ${mins} мин` : '',
+          '+ время обслуж.'
+        )
+        : (mins !== null ? `<span class="pill" title="Время на доставку (сек): ${row.delivery_seconds}">⏱ ${mins} мин</span>` : '');
       const typePill = row.__isStart && row.type ? `<span class="pill">🏁 ${escapeHtml(row.type)}</span>` : '';
       const extraPill = row.__isExtra ? '<span class="pill" title="Разовая точка, не из Google Sheets">✨ Разовая</span>' : '';
       const sourcePill = row.__sourceLabel
         ? `<span class="pill pill--source" title="Источник данных">${escapeHtml(row.__sourceLabel)}</span>`
         : '';
-      const phoneHtml = row.phone ? `<span class="muted">☎ ${highlight(escapeHtml(toStrPhone(row.phone)), state.query)}</span>` : '';
+      const phoneHtml = canEditMeta
+        ? (row.phone
+          ? `<span class="store-meta-editable muted" data-store-edit="1" role="button" tabindex="0" title="Нажмите, чтобы изменить">☎ ${highlight(escapeHtml(toStrPhone(row.phone)), state.query)}</span>`
+          : '<span class="store-meta-editable store-meta-editable--empty muted" data-store-edit="1" role="button" tabindex="0" title="Нажмите, чтобы добавить">+ телефон</span>')
+        : (row.phone ? `<span class="muted">☎ ${highlight(escapeHtml(toStrPhone(row.phone)), state.query)}</span>` : '');
       const pillsHtml = [sourcePill, timeWindow, serviceTime, depot, typePill, extraPill].filter(Boolean).join('');
       const extraDeleteBtn = row.__isExtra
         ? `<div class="store-extra-actions"><button type="button" class="mini-btn" data-act="del-extra" title="Удалить разовую точку">Удалить</button></div>`
         : '';
       const detailParts = [];
-      if (addrHtml) detailParts.push(addrHtml);
-      if (phoneHtml) detailParts.push(phoneHtml);
+      if (canEditMeta || addrHtml) detailParts.push(addrHtml);
+      if (canEditMeta || phoneHtml) detailParts.push(phoneHtml);
       const detailsHtml = detailParts.length ? detailParts.join('<span class="sep">•</span>') : '';
       const metaHtml = (pillsHtml || detailsHtml) ? `
         <div class="store-meta">
@@ -2437,7 +2471,7 @@
       if (idx === -1) return;
       orders.splice(idx, 1);
       state.selected.delete(extraOrderUid(day, id, mode));
-      saveLocal();
+      saveLocalForMode(mode);
       persistActiveSheetCacheSelection();
       render();
     }
@@ -3134,6 +3168,256 @@
       render();
     }
 
+    let storePointEditContext = null;
+
+    function isRoughlyValidTimeWindow(value) {
+      const raw = String(value || '').trim();
+      if (!raw) return false;
+      return /^\d{1,2}:\d{2}(:\d{2})?\s*-\s*\d{1,2}:\d{2}(:\d{2})?$/.test(raw);
+    }
+
+    function storeMetaEditablePill(innerHtml, emptyLabel) {
+      if (innerHtml) {
+        return `<span class="pill store-meta-editable" data-store-edit="1" role="button" tabindex="0" title="Нажмите, чтобы изменить">${innerHtml}</span>`;
+      }
+      return `<span class="pill store-meta-editable store-meta-editable--empty" data-store-edit="1" role="button" tabindex="0" title="Нажмите, чтобы добавить">${escapeHtml(emptyLabel)}</span>`;
+    }
+
+    function buildStorePointEditContext(rowEl, day) {
+      return {
+        uid: rowEl.dataset.uid || '',
+        day: day || state.activeDay,
+        isExtra: rowEl.dataset.isExtra === 'true',
+        extraId: rowEl.dataset.extraId || '',
+        sourceMode: rowEl.dataset.sourceMode || getActiveMode()
+      };
+    }
+
+    function resolveStorePointRecord(context) {
+      if (!context) return { record: null, mode: getActiveMode() };
+      const day = context.day || state.activeDay;
+      if (context.isExtra) {
+        const mode = context.sourceMode || getActiveMode();
+        const store = getStoreForMode(mode);
+        if (!store.extraOrders) store.extraOrders = createEmptyExtraOrders();
+        const bucket = store.extraOrders[day] || [];
+        const idx = bucket.findIndex((item) => item && item.id === context.extraId);
+        if (idx === -1) return { record: null, mode };
+        return { record: bucket[idx], mode, kind: 'extra' };
+      }
+      const uid = context.uid;
+      const idx = scheduleOrderIndexFromUid(uid, day);
+      if (idx == null) return { record: null, mode: getActiveMode() };
+      const sourceMode = context.sourceMode || scheduleOrderSourceFromUid(uid) || getActiveMode();
+      const store = getStoreForMode(sourceMode);
+      const bucket = store.scheduleData[day] || [];
+      const record = bucket[idx];
+      if (!record) return { record: null, mode: sourceMode };
+      return { record, mode: sourceMode, kind: 'schedule', index: idx };
+    }
+
+    function renderStorePointEditForm(record) {
+      const minutes = Number.isFinite(record.delivery_seconds) ? Math.round(record.delivery_seconds / 60) : '';
+      const values = {
+        time_window: record.time_window || getDefaultTimeWindow(),
+        delivery_minutes: minutes === '' ? '' : String(minutes),
+        depot_id: record.depot_id || '',
+        depot_name: record.depot_name || '',
+        address: record.address || '',
+        phone: record.phone || ''
+      };
+      const blockIndex = 0;
+      return `
+        <div class="store-point-edit-form__grid eo-point-grid">
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('time_window', values, blockIndex)}
+            ${makeExtraOrderFieldHtml('delivery_minutes', values, blockIndex)}
+          </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderDepotFieldHtml(values, blockIndex)}
+            ${makeExtraOrderFieldHtml('depot_name', values, blockIndex)}
+          </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('address', values, blockIndex)}
+            ${makeExtraOrderFieldHtml('phone', values, blockIndex)}
+          </div>
+        </div>`;
+    }
+
+    function clearStorePointEditFieldErrors() {
+      if (!dom.storePointEditForm) return;
+      dom.storePointEditForm.querySelectorAll('.eo-field--error').forEach((el) => {
+        el.classList.remove('eo-field--error');
+      });
+    }
+
+    function markStorePointEditFieldError(fieldKey) {
+      if (!dom.storePointEditForm) return;
+      const input = dom.storePointEditForm.querySelector(`[data-field="${fieldKey}"]`);
+      const field = input && input.closest('.eo-field');
+      if (field) field.classList.add('eo-field--error');
+    }
+
+    function readStorePointEditFormValues() {
+      const values = {};
+      if (!dom.storePointEditForm) return values;
+      dom.storePointEditForm.querySelectorAll('[data-field]').forEach((input) => {
+        const key = input.getAttribute('data-field');
+        if (!key) return;
+        values[key] = input.type === 'number' ? input.value.trim() : input.value.trim();
+      });
+      return values;
+    }
+
+    function openStorePointEditModal(context) {
+      if (!shouldLoadPersistedForMode(getActiveMode())) {
+        showError('Сначала обновите данные из Google Sheets.');
+        return;
+      }
+      if (!dom.storePointEditModal || !dom.storePointEditForm) return;
+      const resolved = resolveStorePointRecord(context);
+      if (!resolved.record) {
+        showError('Не удалось найти точку для редактирования.');
+        return;
+      }
+      clearError();
+      storePointEditContext = context;
+      dom.storePointEditForm.innerHTML = renderStorePointEditForm(resolved.record);
+      if (dom.storePointEditModalDay) {
+        dom.storePointEditModalDay.textContent = WEEKDAY_LABELS[context.day] || context.day;
+      }
+      if (dom.storePointEditModalPointName) {
+        const title = resolved.record.title || resolved.record.store || 'Без названия';
+        dom.storePointEditModalPointName.textContent = title;
+      }
+      dom.storePointEditModal.hidden = false;
+      dom.storePointEditModal.setAttribute('aria-hidden', 'false');
+      lockPageScrollForExtraOrderModal();
+      const firstInput = dom.storePointEditForm.querySelector('input[data-field="time_window"]');
+      if (firstInput) firstInput.focus();
+    }
+
+    function closeStorePointEditModal() {
+      if (!dom.storePointEditModal) return;
+      dom.storePointEditModal.hidden = true;
+      dom.storePointEditModal.setAttribute('aria-hidden', 'true');
+      unlockPageScrollForExtraOrderModal();
+      if (dom.storePointEditSubmitBtn) dom.storePointEditSubmitBtn.disabled = false;
+      clearStorePointEditFieldErrors();
+      storePointEditContext = null;
+      if (dom.storePointEditForm) dom.storePointEditForm.innerHTML = '';
+    }
+
+    function submitStorePointEditModal() {
+      const submitBtn = dom.storePointEditSubmitBtn;
+      if (submitBtn) submitBtn.disabled = true;
+      if (!storePointEditContext) {
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
+      const resolved = resolveStorePointRecord(storePointEditContext);
+      if (!resolved.record) {
+        showError('Не удалось найти точку для сохранения.');
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
+      clearStorePointEditFieldErrors();
+      const raw = readStorePointEditFormValues();
+      const errors = [];
+      const timeWindow = raw.time_window || getDefaultTimeWindow();
+      if (!isRoughlyValidTimeWindow(timeWindow)) {
+        errors.push('Укажите временное окно в формате 10:00-21:00.');
+        markStorePointEditFieldError('time_window');
+      }
+      let deliverySeconds = null;
+      if (raw.delivery_minutes !== '') {
+        const minutes = toNumOrNull(raw.delivery_minutes);
+        if (minutes == null || minutes < 0) {
+          errors.push('Время обслуживания должно быть неотрицательным числом.');
+          markStorePointEditFieldError('delivery_minutes');
+        } else {
+          deliverySeconds = minutes * 60;
+        }
+      }
+      if (errors.length) {
+        showError(errors.join(' '));
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+      }
+      Object.assign(resolved.record, {
+        time_window: timeWindow,
+        delivery_seconds: deliverySeconds,
+        depot_id: raw.depot_id || '',
+        depot_name: raw.depot_name || '',
+        address: raw.address || '',
+        phone: raw.phone || ''
+      });
+      const prevMode = state.activeMode;
+      if (resolved.mode && resolved.mode !== prevMode) {
+        state.activeMode = resolved.mode;
+      }
+      reconcileSelectionForActiveDay();
+      saveLocal();
+      persistActiveSheetCacheSelection();
+      state.activeMode = prevMode;
+      closeStorePointEditModal();
+      if (submitBtn) submitBtn.disabled = false;
+      render();
+    }
+
+    function initStorePointEditModal() {
+      if (!dom.storePointEditModal) return;
+      [
+        dom.storePointEditModalBackdrop,
+        dom.storePointEditModalClose,
+        dom.storePointEditCancelBtn
+      ].forEach((el) => {
+        if (el) el.addEventListener('click', () => closeStorePointEditModal());
+      });
+      if (dom.storePointEditSubmitBtn) {
+        dom.storePointEditSubmitBtn.addEventListener('click', () => submitStorePointEditModal());
+      }
+      if (dom.storePointEditForm) {
+        dom.storePointEditForm.addEventListener('click', (event) => {
+          const depotChip = event.target.closest('[data-act="pick-depot"]');
+          if (!depotChip) return;
+          applyDepotPickToBlock(
+            dom.storePointEditForm,
+            depotChip.dataset.depotId || '',
+            depotChip.dataset.depotRef || ''
+          );
+        });
+        dom.storePointEditForm.addEventListener('input', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) {
+            handleExtraOrderPhoneInput(phoneInput);
+            phoneInput.closest('.eo-field')?.classList.remove('eo-field--error');
+            return;
+          }
+          const depotInput = event.target.closest('input[data-field="depot_id"]');
+          if (depotInput) {
+            const currentId = depotInput.value.trim();
+            dom.storePointEditForm.querySelectorAll('[data-act="pick-depot"]').forEach((chip) => {
+              chip.classList.toggle('eo-depot-chip--active', chip.dataset.depotId === currentId);
+            });
+          }
+        });
+        dom.storePointEditForm.addEventListener('focusin', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) handleExtraOrderPhoneFocus(phoneInput);
+        });
+        dom.storePointEditForm.addEventListener('focusout', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) handleExtraOrderPhoneBlur(phoneInput);
+        });
+      }
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        if (!dom.storePointEditModal || dom.storePointEditModal.hidden) return;
+        closeStorePointEditModal();
+      });
+    }
+
     function initExtraOrderModal() {
       if (!dom.extraOrderModal) return;
       const closeHandlers = [
@@ -3401,6 +3685,7 @@
 
       listEl.addEventListener('mousedown', (event) => {
         if (event.button !== 0) return;
+        if (event.target.closest('[data-store-edit]')) return;
         if (event.target.closest('a')) return;
         if (event.target.closest('[data-act="del-extra"]')) return;
         const item = event.target.closest('li.store');
@@ -3461,6 +3746,16 @@
 
       listEl.addEventListener('click', (event) => {
         if (state.suppressClickAfterDrag) return;
+        const editTrigger = event.target.closest('[data-store-edit]');
+        if (editTrigger) {
+          event.preventDefault();
+          event.stopPropagation();
+          const rowEl = editTrigger.closest('li.store');
+          if (rowEl && rowEl.dataset.isStart !== 'true') {
+            openStorePointEditModal(buildStorePointEditContext(rowEl, state.activeDay));
+          }
+          return;
+        }
         if (event.target.closest('a')) return;
         if (event.target.closest('[data-act="del-extra"]')) return;
         const rowEl = event.target.closest('li.store');
@@ -4810,6 +5105,12 @@
     let complexPlannerState = null;
     let complexPlannerStateHydrated = false;
     let complexPlannerSaveTimer = null;
+    /** UI-only: показывать сегмент «Своё время» до удаления всех custom-заказов */
+    let complexCustomSegmentVisible = false;
+    /** UI-only: активная загрузка на mobile (этап 3 — заказы по вкладкам) */
+    let complexActiveLoadStage = 'morning';
+    let complexDepotSettingsUid = null;
+    let complexVehicleSettingsUid = null;
 
     function getComplexPlannerConfig() {
       const cfg = APP.complexPlanner || {};
@@ -4987,6 +5288,8 @@
     function resetComplexPlannerDraft() {
       complexPlannerState = createEmptyComplexPlannerState();
       complexPlannerStateHydrated = true;
+      complexCustomSegmentVisible = false;
+      complexActiveLoadStage = 'morning';
       saveComplexPlannerDraft();
       if (complexPlannerScreenOpen) renderComplexPlanner();
       return complexPlannerState;
@@ -5181,15 +5484,859 @@
     }
 
     function updateComplexPlannerDraftStatus() {
-      const el = document.getElementById('complexPlannerDraftStatus');
-      if (!el) return;
-      const s = ensureComplexPlannerState();
+      updateComplexPlannerStatusBar();
+      renderComplexLoadTimeline();
+      renderComplexValidationPanel();
+      renderComplexRoutePreviewSummary();
+      renderComplexSettingsSummary();
+      renderComplexOrdersByLoad();
+    }
+
+    function pluralRuIssue(n, one, few, many) {
+      const m10 = n % 10;
+      const m100 = n % 100;
+      if (m10 === 1 && m100 !== 11) return one;
+      if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+      return many;
+    }
+
+    function getComplexPlannerStatusLine(state, validation) {
+      const s = state || ensureComplexPlannerState();
+      const v = validation || validateComplexPlannerExport();
+      const loadCount = countComplexLoadingGroups(s.orders, s.prefs);
+      const depotWord = s.depots.length === 1 ? 'склад' : 'склада';
+      const vehicleWord = s.vehicles.length === 1 ? 'машина' : 'машины';
+      const orderWord = pluralRuIssue(s.orders.length, 'заказ', 'заказа', 'заказов');
+      const loadWord = pluralRuIssue(loadCount, 'загрузка', 'загрузки', 'загрузок');
       const parts = [
-        `Склады: ${s.depots.length}`,
-        `Курьеры: ${s.vehicles.length}`,
-        `Заказы: ${s.orders.length}`
+        `${s.depots.length} ${depotWord}`,
+        `${s.vehicles.length} ${vehicleWord}`,
+        `${s.orders.length} ${orderWord}`,
+        `${loadCount} ${loadWord}`
       ];
-      el.textContent = `${parts.join(' · ')}. Черновик сохраняется автоматически.`;
+      let checkText;
+      let level;
+      if (v.errors.length) {
+        const w = pluralRuIssue(v.errors.length, 'ошибка', 'ошибки', 'ошибок');
+        checkText = `есть ${v.errors.length} ${w}`;
+        level = 'error';
+      } else if (v.warnings.length) {
+        const w = pluralRuIssue(v.warnings.length, 'предупреждение', 'предупреждения', 'предупреждений');
+        checkText = `есть ${v.warnings.length} ${w}`;
+        level = 'warn';
+      } else {
+        checkText = 'готово к экспорту';
+        level = 'ok';
+      }
+      return { text: `${parts.join(' · ')} · ${checkText}`, level, validation: v };
+    }
+
+    function updateComplexPlannerStatusBar() {
+      const el = document.getElementById('complexPlannerStatus');
+      if (!el) return;
+      const status = getComplexPlannerStatusLine();
+      el.textContent = status.text;
+      el.classList.remove('complex-planner__status--ok', 'complex-planner__status--warn', 'complex-planner__status--error');
+      el.classList.add(`complex-planner__status--${status.level}`);
+    }
+
+    function shouldShowComplexCustomSegment(state) {
+      const s = state || ensureComplexPlannerState();
+      return s.orders.some((o) => o.loadingStage === 'custom') || complexCustomSegmentVisible;
+    }
+
+    function getComplexPrimaryDepot(state) {
+      const s = state || ensureComplexPlannerState();
+      return s.depots[0] || null;
+    }
+
+    function getComplexDepotDisplayLabel(depot) {
+      if (!depot) return 'склад не задан';
+      const ref = depot.ref && String(depot.ref).trim();
+      const id = depot.id && String(depot.id).trim();
+      if (ref && id) return `${ref} (${id})`;
+      return ref || (id ? `склад ${id}` : 'склад');
+    }
+
+    function formatComplexLoadTimeLabel(raw) {
+      const tw = raw != null ? String(raw).trim() : '';
+      return tw || '—';
+    }
+
+    function countComplexOrdersForTimelineStage(stageKey, orders) {
+      const list = orders || [];
+      if (stageKey === 'custom' || stageKey === 'morning' || stageKey === 'day' || stageKey === 'evening') {
+        return list.filter((o) => o.loadingStage === stageKey).length;
+      }
+      return 0;
+    }
+
+    function getComplexTimelineStageKeyForRefillIndex(idx) {
+      if (idx === 0) return 'day';
+      if (idx === 1) return 'evening';
+      return `refill-${idx}`;
+    }
+
+    function getComplexRefillTitle(idx) {
+      if (idx === 0) return 'Дозагрузка 1';
+      if (idx === 1) return 'Дозагрузка 2';
+      return `Дозагрузка ${idx + 1}`;
+    }
+
+    function buildComplexLoadTimeline(state) {
+      const s = state || ensureComplexPlannerState();
+      const depot = getComplexPrimaryDepot(s);
+      const depotLabel = getComplexDepotDisplayLabel(depot);
+      const segments = [];
+
+      segments.push({
+        key: 'morning',
+        stageKey: 'morning',
+        title: 'Первая загрузка',
+        timeLabel: formatComplexLoadTimeLabel(depot && depot.loadingWindow && depot.loadingWindow.time_window),
+        depotLabel,
+        depotUid: depot ? depot.uid : null,
+        refillIndex: -1,
+        fieldPath: depot ? 'loadingWindow.time_window' : null,
+        orderCount: countComplexOrdersForTimelineStage('morning', s.orders)
+      });
+
+      const refills = depot && Array.isArray(depot.refillingWindows) ? depot.refillingWindows : [];
+      refills.forEach((win, idx) => {
+        const stageKey = getComplexTimelineStageKeyForRefillIndex(idx);
+        segments.push({
+          key: stageKey,
+          stageKey,
+          title: getComplexRefillTitle(idx),
+          timeLabel: formatComplexLoadTimeLabel(win && win.time_window),
+          depotLabel,
+          depotUid: depot ? depot.uid : null,
+          refillIndex: idx,
+          fieldPath: depot ? `refillingWindows.${idx}.time_window` : null,
+          orderCount: countComplexOrdersForTimelineStage(stageKey, s.orders)
+        });
+      });
+
+      if (shouldShowComplexCustomSegment(s)) {
+        segments.push({
+          key: 'custom',
+          stageKey: 'custom',
+          title: 'Своё время',
+          timeLabel: 'по заказам',
+          depotLabel,
+          depotUid: depot ? depot.uid : null,
+          refillIndex: -1,
+          fieldPath: null,
+          orderCount: countComplexOrdersForTimelineStage('custom', s.orders)
+        });
+      }
+
+      return { depot, segments };
+    }
+
+    function setComplexActiveLoadStage(key) {
+      if (!key) return;
+      complexActiveLoadStage = key;
+      if (complexPlannerScreenOpen) {
+        renderComplexLoadTimeline();
+        renderComplexOrdersByLoad();
+      }
+    }
+
+    function syncComplexActiveLoadStageFromTimeline(segments) {
+      if (!segments.length) return;
+      const keys = new Set(segments.map((seg) => seg.key));
+      if (!keys.has(complexActiveLoadStage)) {
+        complexActiveLoadStage = segments[0].key;
+      }
+    }
+
+    function openComplexDepotSettingsModal(depotUid, options) {
+      hydrateComplexPlannerStateIfNeeded();
+      const s = ensureComplexPlannerState();
+      let uid = depotUid;
+      if (!uid && s.depots[0]) uid = s.depots[0].uid;
+      if (!uid && !s.depots.length) {
+        addComplexDepot();
+        uid = ensureComplexPlannerState().depots[0] && ensureComplexPlannerState().depots[0].uid;
+      }
+      if (!uid) return;
+      complexDepotSettingsUid = uid;
+      const modal = document.getElementById('complexDepotSettingsModal');
+      const host = document.getElementById('complexDepotSettingsHost');
+      const titleEl = document.getElementById('complexDepotSettingsTitle');
+      if (!modal || !host) return;
+      const depot = s.depots.find((d) => d.uid === uid) || ensureComplexPlannerState().depots.find((d) => d.uid === uid);
+      if (titleEl && depot) titleEl.textContent = getComplexDepotDisplayLabel(depot);
+      renderComplexDepotFormInto(host, uid, options);
+      modal.hidden = false;
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeComplexDepotSettingsModal() {
+      const modal = document.getElementById('complexDepotSettingsModal');
+      if (!modal) return;
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+      complexDepotSettingsUid = null;
+      updateComplexPlannerDraftStatus();
+    }
+
+    function openComplexVehicleSettingsModal(vehicleUid) {
+      hydrateComplexPlannerStateIfNeeded();
+      const s = ensureComplexPlannerState();
+      let uid = vehicleUid;
+      if (!uid && s.vehicles[0]) uid = s.vehicles[0].uid;
+      if (!uid && !s.vehicles.length) {
+        addComplexVehicle();
+        uid = ensureComplexPlannerState().vehicles[0] && ensureComplexPlannerState().vehicles[0].uid;
+      }
+      if (!uid) return;
+      complexVehicleSettingsUid = uid;
+      const modal = document.getElementById('complexVehicleSettingsModal');
+      const host = document.getElementById('complexVehicleSettingsHost');
+      const titleEl = document.getElementById('complexVehicleSettingsTitle');
+      if (!modal || !host) return;
+      const vehicle = s.vehicles.find((v) => v.uid === uid) || ensureComplexPlannerState().vehicles.find((v) => v.uid === uid);
+      if (titleEl && vehicle) {
+        titleEl.textContent = (vehicle.ref && String(vehicle.ref).trim())
+          || (vehicle.id && String(vehicle.id).trim())
+          || 'Машина';
+      }
+      renderComplexVehicleFormInto(host, uid);
+      modal.hidden = false;
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeComplexVehicleSettingsModal() {
+      const modal = document.getElementById('complexVehicleSettingsModal');
+      if (!modal) return;
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+      complexVehicleSettingsUid = null;
+      updateComplexPlannerDraftStatus();
+    }
+
+    function refreshComplexDepotSettingsModalIfOpen(depotUid) {
+      const modal = document.getElementById('complexDepotSettingsModal');
+      const host = document.getElementById('complexDepotSettingsHost');
+      if (!modal || modal.hidden || !host || complexDepotSettingsUid !== depotUid) return;
+      renderComplexDepotFormInto(host, depotUid);
+    }
+
+    function refreshComplexVehicleSettingsModalIfOpen(vehicleUid) {
+      const modal = document.getElementById('complexVehicleSettingsModal');
+      const host = document.getElementById('complexVehicleSettingsHost');
+      if (!modal || modal.hidden || !host || complexVehicleSettingsUid !== vehicleUid) return;
+      renderComplexVehicleFormInto(host, vehicleUid);
+    }
+
+    function bindComplexLoadTimeline(host) {
+      host.querySelectorAll('.complex-load-card').forEach((card) => {
+        const segmentKey = card.getAttribute('data-segment-key');
+        const stageKey = card.getAttribute('data-stage-key');
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('button, input, label')) return;
+          if (window.matchMedia('(max-width: 1023px)').matches && segmentKey) {
+            setComplexActiveLoadStage(segmentKey);
+          }
+        });
+        const editBtn = card.querySelector('[data-act="edit-segment"]');
+        if (editBtn) {
+          editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const editor = card.querySelector('.complex-load-card__editor');
+            if (editor) {
+              editor.hidden = !editor.hidden;
+              if (!editor.hidden) {
+                const input = editor.querySelector('input');
+                if (input) input.focus();
+              }
+              return;
+            }
+            const depotUid = card.getAttribute('data-depot-uid');
+            openComplexDepotSettingsModal(depotUid, { segmentKey });
+          });
+        }
+        const editor = card.querySelector('.complex-load-card__editor');
+        if (editor) {
+          const input = editor.querySelector('input[data-field]');
+          const saveBtn = editor.querySelector('[data-act="save-time"]');
+          const cancelBtn = editor.querySelector('[data-act="cancel-time"]');
+          const fieldPath = input && input.getAttribute('data-field');
+          const depotUid = card.getAttribute('data-depot-uid');
+          const commit = () => {
+            if (!input || !depotUid || !fieldPath) return;
+            updateComplexDepotField(depotUid, fieldPath, input.value.trim());
+            editor.hidden = true;
+            updateComplexPlannerDraftStatus();
+          };
+          if (saveBtn) saveBtn.addEventListener('click', (e) => { e.stopPropagation(); commit(); });
+          if (cancelBtn) cancelBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            editor.hidden = true;
+          });
+          if (input) {
+            input.addEventListener('keydown', (e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commit(); }
+              if (e.key === 'Escape') { e.preventDefault(); editor.hidden = true; }
+            });
+          }
+        }
+        const addBtn = card.querySelector('[data-act="add-order-segment"]');
+        if (addBtn) {
+          addBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let stage = 'morning';
+            if (stageKey && COMPLEX_LOADING_STAGES.has(stageKey)) {
+              stage = stageKey;
+            } else if (stageKey && stageKey.startsWith('refill-')) {
+              stage = 'evening';
+            }
+            if (stage === 'custom') complexCustomSegmentVisible = true;
+            openComplexOrderForm(null, { loadingStage: stage });
+          });
+        }
+      });
+
+      const addRefillBtn = host.querySelector('[data-act="add-refill-timeline"]');
+      if (addRefillBtn) {
+        addRefillBtn.addEventListener('click', () => {
+          const depot = getComplexPrimaryDepot();
+          if (!depot) {
+            showNotify('Сначала добавьте склад (меню «Демо» или настройки).', 'info', 5000);
+            return;
+          }
+          addComplexRefillingWindow(depot.uid);
+        });
+      }
+    }
+
+    function renderComplexLoadTimeline() {
+      const host = document.getElementById('complexLoadTimelineHost');
+      if (!host) return;
+      const { depot, segments } = buildComplexLoadTimeline();
+      syncComplexActiveLoadStageFromTimeline(segments);
+
+      if (!depot) {
+        host.innerHTML = `
+          <div class="complex-load-timeline complex-load-timeline--empty">
+            <p class="complex-planner__stub">Склад не задан. Загрузите демо из меню «⋯» или настройте склад на этапе 4.</p>
+          </div>`;
+        return;
+      }
+
+      const cardsHtml = segments.map((seg) => {
+        const isActive = seg.key === complexActiveLoadStage;
+        const orderWord = pluralRuIssue(seg.orderCount, 'заказ', 'заказа', 'заказов');
+        const canEditTime = seg.fieldPath && seg.key !== 'custom';
+        const editorHtml = canEditTime ? `
+          <div class="complex-load-card__editor" hidden>
+            <label class="complex-load-card__editor-label">Окно загрузки</label>
+            <input type="text" data-field="${escapeHtml(seg.fieldPath)}" value="${escapeHtml(seg.timeLabel === '—' ? '' : seg.timeLabel)}" placeholder="12:00-13:00" />
+            <div class="complex-load-card__editor-actions">
+              <button type="button" class="mini-btn" data-act="save-time">Сохранить</button>
+              <button type="button" class="mini-btn" data-act="cancel-time">Отмена</button>
+            </div>
+          </div>` : '';
+        return `
+          <article class="complex-load-card${isActive ? ' complex-load-card--active' : ''}"
+            data-segment-key="${escapeHtml(seg.key)}"
+            data-stage-key="${escapeHtml(seg.stageKey)}"
+            data-depot-uid="${escapeHtml(seg.depotUid || '')}"
+            tabindex="0"
+            role="group"
+            aria-label="${escapeHtml(seg.title)}">
+            <h3 class="complex-load-card__title">${escapeHtml(seg.title)}</h3>
+            <p class="complex-load-card__time">${escapeHtml(seg.timeLabel)}</p>
+            <p class="complex-load-card__depot muted">${escapeHtml(seg.depotLabel)}</p>
+            <p class="complex-load-card__count">${seg.orderCount} ${orderWord}</p>
+            ${editorHtml}
+            <div class="complex-load-card__actions">
+              ${canEditTime ? '<button type="button" class="mini-btn" data-act="edit-segment">Изменить</button>' : ''}
+              <button type="button" class="mini-btn complex-load-card__add-btn" data-act="add-order-segment">+ заказ</button>
+            </div>
+          </article>`;
+      }).join('');
+
+      host.innerHTML = `
+        <div class="complex-load-timeline">
+          <div class="complex-load-timeline__track" role="list">${cardsHtml}</div>
+          <button type="button" class="mini-btn complex-load-timeline__add-refill" data-act="add-refill-timeline">+ Добавить дозагрузку</button>
+        </div>`;
+      bindComplexLoadTimeline(host);
+    }
+
+    function formatComplexReadyTimeShort(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return '';
+      const m = s.match(/^(\d{1,2}:\d{2})/);
+      return m ? m[1] : s;
+    }
+
+    function getComplexOrderAvailabilityBadge(order, depot, prefs) {
+      const p = prefs || ensureComplexPlannerState().prefs;
+      const stage = order && order.loadingStage ? order.loadingStage : 'morning';
+      const ready = resolveComplexDepotReadyTime(order, depot, p);
+      const readyShort = formatComplexReadyTimeShort(ready);
+
+      if (stage === 'morning') {
+        if (readyShort) return { text: `С ${readyShort}`, tone: 'ok' };
+        if (p.morningReadyMode === 'loading_start') return { text: 'С начала загрузки', tone: 'ok' };
+        return { text: 'Первая загрузка', tone: 'neutral' };
+      }
+      if (stage === 'custom') {
+        if (readyShort) return { text: `К ${readyShort}`, tone: 'ok' };
+        return { text: 'Время не задано', tone: 'warn' };
+      }
+      if (readyShort) return { text: `С ${readyShort}`, tone: 'ok' };
+      return { text: 'Окно не задано', tone: 'warn' };
+    }
+
+    function getComplexOrderStageOptionsForUi(segments) {
+      const keys = new Set(
+        (segments || []).map((seg) => seg.stageKey).filter((k) => COMPLEX_LOADING_STAGES.has(k))
+      );
+      return COMPLEX_STAGE_COLUMNS.filter((col) => keys.has(col.key));
+    }
+
+    function getComplexOrdersForTimelineSegment(segment, orders) {
+      if (!segment || !segment.stageKey) return [];
+      if (segment.stageKey === 'morning' || segment.stageKey === 'day'
+        || segment.stageKey === 'evening' || segment.stageKey === 'custom') {
+        return (orders || []).filter((o) => o.loadingStage === segment.stageKey);
+      }
+      return [];
+    }
+
+    function isComplexOrdersByLoadTabsMode() {
+      return window.matchMedia('(max-width: 1023px)').matches;
+    }
+
+    function buildComplexOrdersByLoadColumnHtml(segment, orders, stageOptions, layoutOptions) {
+      const layout = layoutOptions && typeof layoutOptions === 'object' ? layoutOptions : {};
+      const tabsMode = !!layout.tabsMode;
+      const orderWord = pluralRuIssue(orders.length, 'заказ', 'заказа', 'заказов');
+      const isActive = segment.key === complexActiveLoadStage;
+      const addStage = COMPLEX_LOADING_STAGES.has(segment.stageKey) ? segment.stageKey : 'morning';
+      const cardsHtml = orders.length
+        ? orders.map((order) => buildComplexOrderCardHtml(order, { stageOptions })).join('')
+        : '<p class="complex-orders-by-load__empty muted">Пока пусто</p>';
+      const hiddenAttr = tabsMode && !isActive ? ' hidden' : '';
+      const activeClass = tabsMode && isActive ? ' complex-orders-by-load__col--active' : '';
+      const tabPanelAttrs = tabsMode
+        ? ` role="tabpanel" aria-labelledby="complex-orders-tab-${escapeHtml(segment.key)}"`
+        : '';
+      return `
+        <section class="complex-orders-by-load__col complex-orders-by-load__col--${escapeHtml(segment.key)}${activeClass}"
+          data-segment-key="${escapeHtml(segment.key)}"${tabPanelAttrs}${hiddenAttr}>
+          <header class="complex-orders-by-load__col-head">
+            <div>
+              <h3 class="complex-orders-by-load__col-title">${escapeHtml(segment.title)}</h3>
+              <p class="complex-orders-by-load__col-time muted">${escapeHtml(segment.timeLabel)}</p>
+            </div>
+            <span class="complex-orders-by-load__col-count">${orders.length} ${orderWord}</span>
+          </header>
+          <button type="button" class="mini-btn complex-orders-by-load__add-btn" data-act="add-order-col" data-stage-key="${escapeHtml(addStage)}">+ заказ</button>
+          <div class="complex-orders-by-load__list">${cardsHtml}</div>
+        </section>`;
+    }
+
+    function bindComplexOrdersByLoad(host, segments, stageOptions) {
+      host.querySelectorAll('.complex-order-card').forEach((card) => bindComplexOrderCard(card));
+      host.querySelectorAll('[data-act="add-order-col"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const stage = btn.getAttribute('data-stage-key');
+          if (stage === 'custom') complexCustomSegmentVisible = true;
+          openComplexOrderForm(null, { loadingStage: stage && COMPLEX_LOADING_STAGES.has(stage) ? stage : 'morning' });
+        });
+      });
+      host.querySelectorAll('[data-act="select-tab"]').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          const key = tab.getAttribute('data-segment-key');
+          if (key) setComplexActiveLoadStage(key);
+        });
+      });
+    }
+
+    function renderComplexOrdersByLoad() {
+      const host = document.getElementById('complexOrdersByLoadHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      const { segments } = buildComplexLoadTimeline(s);
+      syncComplexActiveLoadStageFromTimeline(segments);
+      const stageOptions = getComplexOrderStageOptionsForUi(segments);
+      const tabsMode = isComplexOrdersByLoadTabsMode();
+
+      host.classList.toggle('complex-orders-by-load--columns', !tabsMode);
+      host.classList.toggle('complex-orders-by-load--tabs', tabsMode);
+
+      if (!segments.length) {
+        host.innerHTML = '<p class="complex-planner__stub">Добавьте склад и заказы — здесь появятся колонки по загрузкам.</p>';
+        return;
+      }
+
+      if (tabsMode) {
+        const tabsHtml = segments.map((seg) => {
+          const active = seg.key === complexActiveLoadStage;
+          return `
+            <button type="button" class="complex-orders-by-load__tab${active ? ' complex-orders-by-load__tab--active' : ''}"
+              id="complex-orders-tab-${escapeHtml(seg.key)}"
+              data-act="select-tab"
+              data-segment-key="${escapeHtml(seg.key)}"
+              role="tab"
+              aria-selected="${active ? 'true' : 'false'}">
+              ${escapeHtml(seg.title)} <span class="complex-orders-by-load__tab-count">${seg.orderCount}</span>
+            </button>`;
+        }).join('');
+        const activeSeg = segments.find((seg) => seg.key === complexActiveLoadStage) || segments[0];
+        const orders = getComplexOrdersForTimelineSegment(activeSeg, s.orders);
+        const panelHtml = buildComplexOrdersByLoadColumnHtml(activeSeg, orders, stageOptions, { tabsMode: true });
+        host.innerHTML = `
+          <div class="complex-orders-by-load__tabs" role="tablist">${tabsHtml}</div>
+          <div class="complex-orders-by-load__panels">${panelHtml}</div>`;
+      } else {
+        const columnsHtml = segments.map((seg) => {
+          const orders = getComplexOrdersForTimelineSegment(seg, s.orders);
+          return buildComplexOrdersByLoadColumnHtml(seg, orders, stageOptions, { tabsMode: false });
+        }).join('');
+        host.innerHTML = `<div class="complex-orders-by-load__columns">${columnsHtml}</div>`;
+      }
+
+      bindComplexOrdersByLoad(host, segments, stageOptions);
+    }
+
+    function formatComplexDepotWindowsSummary(depot) {
+      if (!depot) return '—';
+      const parts = [];
+      const loadTw = depot.loadingWindow && depot.loadingWindow.time_window
+        ? String(depot.loadingWindow.time_window).trim()
+        : '';
+      if (loadTw) parts.push(`первая ${loadTw}`);
+      (depot.refillingWindows || []).forEach((win, idx) => {
+        const tw = win && win.time_window ? String(win.time_window).trim() : '';
+        if (tw) parts.push(`дозагр.${idx + 1} ${tw}`);
+      });
+      return parts.length ? parts.join(' · ') : 'окна не заданы';
+    }
+
+    function formatComplexVehicleFlagsSummary(vehicle) {
+      if (!vehicle) return '—';
+      const flags = [];
+      if (vehicle.visit_depot_at_start) flags.push('старт со склада');
+      if (vehicle.return_to_depot) flags.push('возврат на склад');
+      if (vehicle.allow_different_depots_in_route) flags.push('разные склады');
+      return flags.length ? flags.join(' · ') : 'флаги не заданы';
+    }
+
+    function getComplexVehicleMaxRunsIssue(vehicle, state) {
+      const s = state || ensureComplexPlannerState();
+      if (!vehicle) return { needsFix: false, loadGroups: 0, runs: null };
+      const loadGroups = countComplexLoadingGroups(s.orders, s.prefs);
+      const runs = Number(vehicle.max_runs);
+      const needsFix = !Number.isFinite(runs) || runs < loadGroups;
+      return { needsFix, loadGroups, runs: Number.isFinite(runs) ? runs : null };
+    }
+
+    function fixComplexVehicleMaxRuns(vehicleUid) {
+      const s = ensureComplexPlannerState();
+      const idx = vehicleUid ? findComplexVehicleIndex(vehicleUid) : 0;
+      const vehicle = idx >= 0 ? s.vehicles[idx] : s.vehicles[0];
+      if (!vehicle) return;
+      const loadGroups = countComplexLoadingGroups(s.orders, s.prefs);
+      const next = Math.max(loadGroups, 1);
+      updateComplexVehicleField(vehicle.uid, 'max_runs', next);
+      scheduleComplexPlannerSave();
+      refreshComplexVehicleSettingsModalIfOpen(vehicle.uid);
+      updateComplexPlannerDraftStatus();
+      showNotify(`max_runs установлен в ${next}`, 'success', 4000);
+    }
+
+    function bindComplexSettingsSummary(host) {
+      host.querySelectorAll('[data-act="configure-depot"]').forEach((btn) => {
+        btn.addEventListener('click', () => openComplexDepotSettingsModal(btn.getAttribute('data-depot-uid') || null));
+      });
+      host.querySelectorAll('[data-act="configure-vehicle"]').forEach((btn) => {
+        btn.addEventListener('click', () => openComplexVehicleSettingsModal(btn.getAttribute('data-vehicle-uid') || null));
+      });
+      host.querySelectorAll('[data-act="fix-max-runs"]').forEach((btn) => {
+        btn.addEventListener('click', () => fixComplexVehicleMaxRuns(btn.getAttribute('data-vehicle-uid') || null));
+      });
+      host.querySelectorAll('[data-act="add-depot-summary"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          addComplexDepot();
+          openComplexDepotSettingsModal(ensureComplexPlannerState().depots[0] && ensureComplexPlannerState().depots[0].uid);
+        });
+      });
+      host.querySelectorAll('[data-act="add-vehicle-summary"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          addComplexVehicle();
+          openComplexVehicleSettingsModal(ensureComplexPlannerState().vehicles[0] && ensureComplexPlannerState().vehicles[0].uid);
+        });
+      });
+    }
+
+    function renderComplexSettingsSummary() {
+      const host = document.getElementById('complexSettingsSummaryHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      const depot = s.depots[0];
+      const vehicle = s.vehicles[0];
+      const orderWord = pluralRuIssue(s.orders.length, 'заказ', 'заказа', 'заказов');
+
+      let depotHtml;
+      if (!depot) {
+        depotHtml = `
+          <article class="complex-summary-card">
+            <h3 class="complex-summary-card__title">Склад</h3>
+            <p class="complex-summary-card__line muted">Не задан</p>
+            <button type="button" class="mini-btn" data-act="add-depot-summary">+ Добавить склад</button>
+          </article>`;
+      } else {
+        const depotTw = depot.time_window ? String(depot.time_window).trim() : '—';
+        depotHtml = `
+          <article class="complex-summary-card">
+            <h3 class="complex-summary-card__title">${escapeHtml(getComplexDepotDisplayLabel(depot))}</h3>
+            <p class="complex-summary-card__line">Работа: ${escapeHtml(depotTw)}</p>
+            <p class="complex-summary-card__line muted">${escapeHtml(formatComplexDepotWindowsSummary(depot))}</p>
+            <p class="complex-summary-card__line muted">${s.orders.length} ${orderWord} на складе</p>
+            <button type="button" class="mini-btn" data-act="configure-depot" data-depot-uid="${escapeHtml(depot.uid)}">Настроить</button>
+          </article>`;
+      }
+
+      let vehicleHtml;
+      if (!vehicle) {
+        vehicleHtml = `
+          <article class="complex-summary-card">
+            <h3 class="complex-summary-card__title">Машина</h3>
+            <p class="complex-summary-card__line muted">Не задана</p>
+            <button type="button" class="mini-btn" data-act="add-vehicle-summary">+ Добавить машину</button>
+          </article>`;
+      } else {
+        const vehicleLabel = (vehicle.ref && String(vehicle.ref).trim())
+          || (vehicle.id && String(vehicle.id).trim())
+          || 'Курьер';
+        const cap = vehicle['capacity.weight_kg'];
+        const capLabel = cap !== '' && cap != null ? `${cap} кг` : '—';
+        const shift = vehicle['shifts.0.time_window'] ? String(vehicle['shifts.0.time_window']).trim() : '—';
+        const runs = vehicle.max_runs !== '' && vehicle.max_runs != null ? Number(vehicle.max_runs) : null;
+        const runsLabel = runs != null && Number.isFinite(runs)
+          ? `${runs} ${pluralRuIssue(runs, 'рейс', 'рейса', 'рейсов')}`
+          : 'рейсов не задано';
+        const maxRunsIssue = getComplexVehicleMaxRunsIssue(vehicle, s);
+        const warnHtml = maxRunsIssue.needsFix
+          ? `<p class="complex-summary-card__warn">Нужно ≥${maxRunsIssue.loadGroups} рейсов (сейчас ${maxRunsIssue.runs != null ? maxRunsIssue.runs : '—'})</p>
+             <button type="button" class="mini-btn complex-summary-card__fix-btn" data-act="fix-max-runs" data-vehicle-uid="${escapeHtml(vehicle.uid)}">Исправить автоматически</button>`
+          : '';
+        vehicleHtml = `
+          <article class="complex-summary-card">
+            <h3 class="complex-summary-card__title">${escapeHtml(vehicleLabel)}</h3>
+            <p class="complex-summary-card__line">${escapeHtml(capLabel)} · смена ${escapeHtml(shift)} · ${escapeHtml(runsLabel)}</p>
+            <p class="complex-summary-card__line muted">${escapeHtml(formatComplexVehicleFlagsSummary(vehicle))}</p>
+            ${warnHtml}
+            <button type="button" class="mini-btn" data-act="configure-vehicle" data-vehicle-uid="${escapeHtml(vehicle.uid)}">Настроить</button>
+          </article>`;
+      }
+
+      host.innerHTML = `<div class="complex-summary-stack">${depotHtml}${vehicleHtml}</div>`;
+      bindComplexSettingsSummary(host);
+    }
+
+    function complexValidationTargetAttrs(meta) {
+      if (!meta || !meta.type) return '';
+      const parts = [`data-target-type="${escapeHtml(meta.type)}"`];
+      if (meta.depotUid) parts.push(`data-depot-uid="${escapeHtml(meta.depotUid)}"`);
+      if (meta.vehicleUid) parts.push(`data-vehicle-uid="${escapeHtml(meta.vehicleUid)}"`);
+      if (meta.orderUid) parts.push(`data-order-uid="${escapeHtml(meta.orderUid)}"`);
+      if (meta.stageKey) parts.push(`data-stage-key="${escapeHtml(meta.stageKey)}"`);
+      if (meta.action) parts.push(`data-target-action="${escapeHtml(meta.action)}"`);
+      return parts.join(' ');
+    }
+
+    function readComplexValidationTargetFromEl(el) {
+      if (!el) return null;
+      const type = el.getAttribute('data-target-type');
+      if (!type) return null;
+      const meta = { type };
+      const depotUid = el.getAttribute('data-depot-uid');
+      const vehicleUid = el.getAttribute('data-vehicle-uid');
+      const orderUid = el.getAttribute('data-order-uid');
+      const stageKey = el.getAttribute('data-stage-key');
+      const action = el.getAttribute('data-target-action');
+      if (depotUid) meta.depotUid = depotUid;
+      if (vehicleUid) meta.vehicleUid = vehicleUid;
+      if (orderUid) meta.orderUid = orderUid;
+      if (stageKey) meta.stageKey = stageKey;
+      if (action) meta.action = action;
+      return meta;
+    }
+
+    function scrollToComplexTarget(meta) {
+      if (!meta || !meta.type) return;
+      if (meta.action === 'fix-max-runs') {
+        fixComplexVehicleMaxRuns(meta.vehicleUid || null);
+        return;
+      }
+      const scrollToSection = (id) => {
+        const el = document.getElementById(id);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      };
+      switch (meta.type) {
+        case 'orders':
+          scrollToSection('complexOrdersByLoadSection');
+          break;
+        case 'depot-add':
+        case 'depot':
+          scrollToSection('complexSettingsSummarySection');
+          openComplexDepotSettingsModal(meta.depotUid || null);
+          break;
+        case 'vehicle-add':
+        case 'vehicle':
+          scrollToSection('complexSettingsSummarySection');
+          openComplexVehicleSettingsModal(meta.vehicleUid || null);
+          break;
+        case 'order':
+          if (meta.orderUid) {
+            const order = ensureComplexPlannerState().orders.find((o) => o.uid === meta.orderUid);
+            if (order && order.loadingStage) {
+              const stage = order.loadingStage;
+              const segKey = COMPLEX_LOADING_STAGES.has(stage) ? stage : 'morning';
+              setComplexActiveLoadStage(segKey);
+            }
+            scrollToSection('complexOrdersByLoadSection');
+            openComplexOrderForm(meta.orderUid);
+          }
+          break;
+        case 'export-settings':
+          openComplexExportSettingsPanel();
+          break;
+        case 'load-stage':
+          if (meta.stageKey) setComplexActiveLoadStage(meta.stageKey);
+          scrollToSection('complexLoadTimelineSection');
+          break;
+        default:
+          break;
+      }
+    }
+
+    function buildComplexValidationItemHtml(item, level) {
+      const meta = item.meta;
+      const hasTarget = meta && meta.type;
+      const body = hasTarget
+        ? `<button type="button" class="complex-validation__link" ${complexValidationTargetAttrs(meta)}>${escapeHtml(item.message)}</button>`
+        : `<span class="complex-validation__text">${escapeHtml(item.message)}</span>`;
+      const fixBtn = meta && meta.action === 'fix-max-runs'
+        ? `<button type="button" class="mini-btn complex-validation__fix" ${complexValidationTargetAttrs(meta)}>Исправить</button>`
+        : '';
+      return `<li class="complex-validation__item complex-validation__item--${level}">${body}${fixBtn}</li>`;
+    }
+
+    function bindComplexValidationPanel(host) {
+      host.querySelectorAll('[data-target-type]').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.preventDefault();
+          scrollToComplexTarget(readComplexValidationTargetFromEl(el));
+        });
+      });
+    }
+
+    function renderComplexValidationPanel() {
+      const host = document.getElementById('complexValidationHost');
+      if (!host) return;
+      const v = validateComplexPlannerExport();
+      let level = 'ok';
+      let badge = 'Готово к экспорту';
+      if (v.errors.length) {
+        level = 'error';
+        badge = `${v.errors.length} ${pluralRuIssue(v.errors.length, 'ошибка', 'ошибки', 'ошибок')}`;
+      } else if (v.warnings.length) {
+        level = 'warn';
+        badge = `${v.warnings.length} ${pluralRuIssue(v.warnings.length, 'предупреждение', 'предупреждения', 'предупреждений')}`;
+      }
+      const errorItems = v.errorItems || v.errors.map((message) => ({ message, meta: null }));
+      const warningItems = v.warningItems || v.warnings.map((message) => ({ message, meta: null }));
+      const items = [
+        ...errorItems.map((item) => ({ ...item, level: 'error' })),
+        ...warningItems.map((item) => ({ ...item, level: 'warn' }))
+      ];
+      const listHtml = items.length
+        ? `<ul class="complex-validation__list">${items.map((item) => buildComplexValidationItemHtml(item, item.level)).join('')}</ul>`
+        : '<p class="muted" style="margin:0;font-size:13px">Все обязательные поля заполнены.</p>';
+      host.innerHTML = `
+        <div class="complex-validation">
+          <p class="complex-validation__badge complex-validation__badge--${level}">${escapeHtml(badge)}</p>
+          ${items.length ? '<p class="complex-validation__hint muted">Нажмите на пункт — перейти к исправлению</p>' : ''}
+          ${listHtml}
+        </div>`;
+      bindComplexValidationPanel(host);
+    }
+
+    function buildComplexRouteBatchSummary(state) {
+      const s = state || ensureComplexPlannerState();
+      const counts = { morning: 0, day: 0, evening: 0, custom: 0 };
+      s.orders.forEach((o) => {
+        const stage = o.loadingStage || 'morning';
+        if (counts[stage] != null) counts[stage] += 1;
+      });
+      const parts = [];
+      if (counts.morning) parts.push(`Утро ${counts.morning}`);
+      if (counts.day) parts.push(`День ${counts.day}`);
+      if (counts.evening) parts.push(`Вечер ${counts.evening}`);
+      if (counts.custom) parts.push(`Своё ${counts.custom}`);
+      return parts.join(' → ');
+    }
+
+    function renderComplexRoutePreviewSummary() {
+      const host = document.getElementById('complexRoutePreviewHost');
+      if (!host) return;
+      const s = ensureComplexPlannerState();
+      if (!s.orders.length) {
+        host.innerHTML = '<p class="complex-planner__stub">Добавьте заказы — здесь будет краткая сводка маршрута.</p>';
+        return;
+      }
+      const loadCount = countComplexLoadingGroups(s.orders, s.prefs);
+      const depot = s.depots[0];
+      const depotId = depot && depot.id != null ? String(depot.id).trim() : '';
+      const depotLine = depotId ? `склад ${depotId}` : 'склад не задан';
+      const vehicle = s.vehicles[0];
+      const maxRuns = vehicle && vehicle.max_runs != null && vehicle.max_runs !== '' ? Number(vehicle.max_runs) : null;
+      const runsLine = maxRuns != null && Number.isFinite(maxRuns)
+        ? (maxRuns >= loadCount
+          ? `Рейсы: max_runs ${maxRuns}`
+          : `Рейсы: нужно ≥${loadCount} (сейчас ${maxRuns})`)
+        : 'Рейсы: max_runs не задан';
+      const batchLine = buildComplexRouteBatchSummary(s);
+      host.innerHTML = `
+        <div class="complex-route-preview--summary">
+          <p class="complex-route-preview__line">Маршрут: ${loadCount} ${pluralRuIssue(loadCount, 'загрузка', 'загрузки', 'загрузок')} · ${s.orders.length} ${pluralRuIssue(s.orders.length, 'заказ', 'заказа', 'заказов')} · ${escapeHtml(depotLine)}</p>
+          <p class="complex-route-preview__line">${escapeHtml(runsLine)}</p>
+          ${batchLine ? `<p class="complex-route-preview__batches muted">${escapeHtml(batchLine)}</p>` : ''}
+        </div>`;
+    }
+
+    function setComplexPlannerMenuOpen(open) {
+      const menu = document.getElementById('complexPlannerMenu');
+      const btn = document.getElementById('complexPlannerMenuBtn');
+      if (!menu) return;
+      const show = !!open;
+      menu.hidden = !show;
+      if (btn) btn.setAttribute('aria-expanded', show ? 'true' : 'false');
+    }
+
+    function openComplexExportSettingsPanel() {
+      syncComplexPlannerOptionsToUi();
+      const modal = document.getElementById('complexExportSettingsModal');
+      if (!modal) return;
+      setComplexPlannerMenuOpen(false);
+      modal.hidden = false;
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeComplexExportSettingsPanel() {
+      const modal = document.getElementById('complexExportSettingsModal');
+      if (!modal) return;
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
     }
 
     function formatComplexRefillingHardForExcel(win) {
@@ -5309,6 +6456,9 @@
       depot.refillingWindows.push({ time_window: '', hard_time_window: '' });
       scheduleComplexPlannerSave();
       renderComplexDepots();
+      renderComplexLoadTimeline();
+      refreshComplexDepotSettingsModalIfOpen(depotUid);
+      updateComplexPlannerDraftStatus();
     }
 
     function removeComplexRefillingWindow(depotUid, refillIndex) {
@@ -5319,6 +6469,9 @@
       depot.refillingWindows.splice(refillIndex, 1);
       scheduleComplexPlannerSave();
       renderComplexDepots();
+      renderComplexLoadTimeline();
+      refreshComplexDepotSettingsModalIfOpen(depotUid);
+      updateComplexPlannerDraftStatus();
     }
 
     function updateComplexDepotField(depotUid, fieldPath, value) {
@@ -5358,7 +6511,7 @@
         </div>`;
     }
 
-    function renderComplexDepotRefillingRows(depot, card) {
+    function renderComplexDepotRefillingRows(depot, card, refreshFn) {
       const list = card.querySelector('[data-complex-refill-list]');
       if (!list) return;
       list.innerHTML = '';
@@ -5388,7 +6541,8 @@
               `refillingWindows.${rIdx}.hard_time_window`,
               hardCb.checked ? tw : ''
             );
-            renderComplexDepots();
+            if (refreshFn) refreshFn();
+            else renderComplexDepots();
           });
         }
         row.querySelector('[data-act="remove-refill"]').addEventListener('click', () => {
@@ -5398,112 +6552,127 @@
       });
     }
 
+    function renderComplexDepotFormInto(container, depotUid, options) {
+      if (!container) return false;
+      container.innerHTML = '';
+      const idx = findComplexDepotIndex(depotUid);
+      if (idx < 0) return false;
+      const s = ensureComplexPlannerState();
+      const depot = s.depots[idx];
+      const index = idx;
+      const refresh = () => renderComplexDepotFormInto(container, depotUid, options);
+      const card = document.createElement('div');
+      card.className = 'config-card complex-depot-card';
+      const titleRaw = (depot.ref && String(depot.ref).trim())
+        || (depot.id && String(depot.id).trim())
+        || `Склад #${index + 1}`;
+      const loadingHard = isComplexHardWindowFlag(
+        depot.loadingWindow && depot.loadingWindow.hard_time_window,
+        depot.loadingWindow && depot.loadingWindow.time_window
+      );
+      const refillCount = (depot.refillingWindows || []).length;
+      const stubPreview = refillCount > 1
+        ? ` · в Excel: time_windows_refilling.time_windows.0…${refillCount - 1}`
+        : '';
+      card.innerHTML = `
+        <div class="config-card__header">
+          <div>
+            <h3 class="config-card__title">${escapeHtml(titleRaw)}</h3>
+            <p class="config-card__subtitle muted">ID: ${escapeHtml(depot.id || '—')} · дозагрузок: ${refillCount}${escapeHtml(stubPreview)}</p>
+          </div>
+          <button type="button" class="mini-btn" data-act="del-depot">Удалить склад</button>
+        </div>
+        <div class="config-grid">
+          ${makeConfigField('ID склада', 'id', depot.id, { placeholder: '1' })}
+          ${makeConfigField('Название', 'ref', depot.ref, { placeholder: 'Основной склад' })}
+          ${makeConfigField('Широта', 'point.lat', depot['point.lat'], { type: 'number', step: 'any' })}
+          ${makeConfigField('Долгота', 'point.lon', depot['point.lon'], { type: 'number', step: 'any' })}
+          ${makeConfigField('Время работы склада', 'time_window', depot.time_window, { placeholder: '07:00-21:00' })}
+        </div>
+        <div class="complex-depot-card__block">
+          <h4 class="complex-depot-card__block-title">Первая загрузка</h4>
+          <div class="config-grid">
+            ${makeConfigField('Окно первой загрузки', 'loadingWindow.time_window', depot.loadingWindow.time_window, { placeholder: '07:00-09:00' })}
+          </div>
+          ${complexHardWindowCheckboxHtml('Жёсткое окно первой загрузки', loadingHard)}
+        </div>
+        <div class="complex-depot-card__block">
+          <h4 class="complex-depot-card__block-title">Окна дозагрузки</h4>
+          <div class="complex-refill-list" data-complex-refill-list></div>
+          <div class="complex-depot-card__actions">
+            <button type="button" class="mini-btn" data-act="add-refill">+ Добавить окно дозагрузки</button>
+          </div>
+        </div>
+        <div class="complex-depot-card__block">
+          <h4 class="complex-depot-card__block-title">Обслуживание на складе (сек)</h4>
+          <p class="muted complex-hint">В Excel уходит только service_duration_s (load/finish в импорте Яндекса не поддерживаются).</p>
+          <div class="config-grid">
+            ${makeConfigField('service_duration_s', 'service_duration_s', depot.service_duration_s, { type: 'number', step: '1', placeholder: 'необязательно' })}
+          </div>
+        </div>
+      `;
+      card.querySelectorAll('[data-field]').forEach((input) => {
+        const fieldPath = input.getAttribute('data-field');
+        if (!fieldPath) return;
+        const eventName = input.type === 'checkbox' ? 'change' : 'input';
+        input.addEventListener(eventName, (ev) => {
+          const el = ev.target;
+          let val = el.value;
+          if (el.type === 'number') val = el.value === '' ? '' : Number(el.value);
+          updateComplexDepotField(depot.uid, fieldPath, val);
+          if (fieldPath === 'ref' || fieldPath === 'id') {
+            const titleEl = card.querySelector('.config-card__title');
+            if (titleEl) {
+              titleEl.textContent = (depot.ref && String(depot.ref).trim())
+                || (depot.id && String(depot.id).trim())
+                || `Склад #${index + 1}`;
+            }
+          }
+        });
+      });
+      const loadingHardCb = card.querySelector('.complex-depot-card__block [data-complex-hard]');
+      if (loadingHardCb) {
+        loadingHardCb.addEventListener('change', () => {
+          const tw = String(depot.loadingWindow.time_window || '').trim();
+          updateComplexDepotField(depot.uid, 'loadingWindow.hard_time_window', loadingHardCb.checked ? tw : '');
+        });
+      }
+      card.querySelector('[data-act="add-refill"]').addEventListener('click', () => addComplexRefillingWindow(depot.uid));
+      card.querySelector('[data-act="del-depot"]').addEventListener('click', () => {
+        if (s.depots.length <= 1) {
+          removeComplexDepot(depot.uid);
+          closeComplexDepotSettingsModal();
+          return;
+        }
+        if (window.confirm('Удалить этот склад из черновика?')) {
+          removeComplexDepot(depot.uid);
+          closeComplexDepotSettingsModal();
+        }
+      });
+      renderComplexDepotRefillingRows(depot, card, refresh);
+      container.appendChild(card);
+      return true;
+    }
+
     function renderComplexDepots() {
       const host = document.getElementById('complexDepotsHost');
       if (!host) return;
       const s = ensureComplexPlannerState();
       if (!s.depots.length) {
-        host.innerHTML = '<p class="empty-hint">Складов пока нет. Нажмите «Добавить склад» вверху или здесь.</p>';
-        const hint = host.querySelector('.empty-hint');
-        if (hint) {
-          const wrap = document.createElement('p');
-          wrap.className = 'complex-depot-list__empty-actions';
-          wrap.innerHTML = '<button type="button" class="mini-btn" data-act="add-depot-inline">+ Добавить склад</button>';
-          host.appendChild(wrap);
-          wrap.querySelector('[data-act="add-depot-inline"]').addEventListener('click', addComplexDepot);
-        }
+        host.innerHTML = '<p class="empty-hint">Складов пока нет.</p>';
+        const wrap = document.createElement('p');
+        wrap.className = 'complex-depot-list__empty-actions';
+        wrap.innerHTML = '<button type="button" class="mini-btn" data-act="add-depot-inline">+ Добавить склад</button>';
+        host.appendChild(wrap);
+        wrap.querySelector('[data-act="add-depot-inline"]').addEventListener('click', addComplexDepot);
         return;
       }
       const list = document.createElement('div');
       list.className = 'complex-depot-list';
-      s.depots.forEach((depot, index) => {
-        const card = document.createElement('div');
-        card.className = 'config-card complex-depot-card';
-        const titleRaw = (depot.ref && String(depot.ref).trim())
-          || (depot.id && String(depot.id).trim())
-          || `Склад #${index + 1}`;
-        const loadingHard = isComplexHardWindowFlag(
-          depot.loadingWindow && depot.loadingWindow.hard_time_window,
-          depot.loadingWindow && depot.loadingWindow.time_window
-        );
-        const refillCount = (depot.refillingWindows || []).length;
-        const stubPreview = refillCount > 1
-          ? ` · в Excel: time_windows_refilling.time_windows.0…${refillCount - 1}`
-          : '';
-        card.innerHTML = `
-          <div class="config-card__header">
-            <div>
-              <h3 class="config-card__title">${escapeHtml(titleRaw)}</h3>
-              <p class="config-card__subtitle muted">ID: ${escapeHtml(depot.id || '—')} · дозагрузок: ${refillCount}${escapeHtml(stubPreview)}</p>
-            </div>
-            <button type="button" class="mini-btn" data-act="del-depot">Удалить склад</button>
-          </div>
-          <div class="config-grid">
-            ${makeConfigField('ID склада', 'id', depot.id, { placeholder: '1' })}
-            ${makeConfigField('Название', 'ref', depot.ref, { placeholder: 'Основной склад' })}
-            ${makeConfigField('Широта', 'point.lat', depot['point.lat'], { type: 'number', step: 'any' })}
-            ${makeConfigField('Долгота', 'point.lon', depot['point.lon'], { type: 'number', step: 'any' })}
-            ${makeConfigField('Время работы склада', 'time_window', depot.time_window, { placeholder: '07:00-21:00' })}
-          </div>
-          <div class="complex-depot-card__block">
-            <h4 class="complex-depot-card__block-title">Первая загрузка</h4>
-            <div class="config-grid">
-              ${makeConfigField('Окно первой загрузки', 'loadingWindow.time_window', depot.loadingWindow.time_window, { placeholder: '07:00-09:00' })}
-            </div>
-            ${complexHardWindowCheckboxHtml('Жёсткое окно первой загрузки', loadingHard)}
-          </div>
-          <div class="complex-depot-card__block">
-            <h4 class="complex-depot-card__block-title">Окна дозагрузки</h4>
-            <div class="complex-refill-list" data-complex-refill-list></div>
-            <div class="complex-depot-card__actions">
-              <button type="button" class="mini-btn" data-act="add-refill">+ Добавить окно дозагрузки</button>
-            </div>
-          </div>
-          <div class="complex-depot-card__block">
-            <h4 class="complex-depot-card__block-title">Обслуживание на складе (сек)</h4>
-            <p class="muted complex-hint">В Excel уходит только service_duration_s (load/finish в импорте Яндекса не поддерживаются).</p>
-            <div class="config-grid">
-              ${makeConfigField('service_duration_s', 'service_duration_s', depot.service_duration_s, { type: 'number', step: '1', placeholder: 'необязательно' })}
-            </div>
-          </div>
-        `;
-        card.querySelectorAll('[data-field]').forEach((input) => {
-          const fieldPath = input.getAttribute('data-field');
-          if (!fieldPath) return;
-          const eventName = input.type === 'checkbox' ? 'change' : 'input';
-          input.addEventListener(eventName, (ev) => {
-            const el = ev.target;
-            let val = el.value;
-            if (el.type === 'number') val = el.value === '' ? '' : Number(el.value);
-            updateComplexDepotField(depot.uid, fieldPath, val);
-            if (fieldPath === 'ref' || fieldPath === 'id') {
-              const titleEl = card.querySelector('.config-card__title');
-              if (titleEl) {
-                titleEl.textContent = (depot.ref && String(depot.ref).trim())
-                  || (depot.id && String(depot.id).trim())
-                  || `Склад #${index + 1}`;
-              }
-            }
-          });
-        });
-        const loadingHardCb = card.querySelector('.complex-depot-card__block [data-complex-hard]');
-        if (loadingHardCb) {
-          loadingHardCb.addEventListener('change', () => {
-            const tw = String(depot.loadingWindow.time_window || '').trim();
-            depot.loadingWindow.hard_time_window = loadingHardCb.checked ? tw : '';
-            scheduleComplexPlannerSave();
-          });
-        }
-        card.querySelector('[data-act="add-refill"]').addEventListener('click', () => addComplexRefillingWindow(depot.uid));
-        card.querySelector('[data-act="del-depot"]').addEventListener('click', () => {
-          if (s.depots.length <= 1) {
-            removeComplexDepot(depot.uid);
-            return;
-          }
-          if (window.confirm('Удалить этот склад из черновика?')) removeComplexDepot(depot.uid);
-        });
-        renderComplexDepotRefillingRows(depot, card);
-        list.appendChild(card);
+      s.depots.forEach((depot) => {
+        const wrap = document.createElement('div');
+        renderComplexDepotFormInto(wrap, depot.uid);
+        list.appendChild(wrap);
       });
       host.innerHTML = '';
       host.appendChild(list);
@@ -5600,18 +6769,118 @@
       subtitleEl.textContent = parts.length ? parts.join(' · ') : 'Заполните параметры курьера';
     }
 
+    function renderComplexVehicleFormInto(container, vehicleUid) {
+      if (!container) return false;
+      container.innerHTML = '';
+      const idx = findComplexVehicleIndex(vehicleUid);
+      if (idx < 0) return false;
+      const s = ensureComplexPlannerState();
+      const vehicle = s.vehicles[idx];
+      const index = idx;
+      const refresh = () => renderComplexVehicleFormInto(container, vehicleUid);
+      const card = document.createElement('div');
+      card.className = 'config-card complex-vehicle-card';
+      const titleRaw = (vehicle.ref && String(vehicle.ref).trim())
+        || (vehicle.id && String(vehicle.id).trim())
+        || `Курьер #${index + 1}`;
+      const fieldsHtml = COMPLEX_VEHICLE_FIELD_CONFIG.map((cfg) => makeConfigField(
+        cfg.label,
+        cfg.key,
+        vehicle[cfg.key] ?? '',
+        cfg
+      )).join('');
+      const flagsHtml = COMPLEX_VEHICLE_FLAG_CONFIG.map((cfg) => makeConfigField(
+        cfg.label,
+        cfg.key,
+        vehicle[cfg.key],
+        { type: 'checkbox' }
+      )).join('');
+      const depotPickers = s.depots.length
+        ? `
+        <div class="config-grid" style="margin-top:10px">
+          <div class="config-field">
+            <label>Быстрый выбор стартового склада</label>
+            <select data-act="pick-start-depot">${buildComplexDepotSelectOptions(s.depots, vehicle.starting_depot_id)}</select>
+          </div>
+          <div class="config-field">
+            <label>Быстрый выбор промежуточного склада</label>
+            <select data-act="pick-middle-depot">${buildComplexDepotSelectOptions(s.depots, vehicle.middle_depot_id)}</select>
+          </div>
+        </div>`
+        : '<p class="muted complex-vehicle-card__hint-inline">Добавьте склад, чтобы подставлять starting_depot_id / middle_depot_id.</p>';
+      const loadGroups = countComplexLoadingGroups(s.orders, s.prefs);
+      const runsNum = Number(vehicle.max_runs);
+      const runsWarn = !Number.isFinite(runsNum) || runsNum < loadGroups
+        ? `<p class="muted complex-vehicle-card__hint-inline complex-summary-card__warn">max_runs меньше числа загрузок (${loadGroups}). Используйте «Исправить автоматически» в summary или укажите вручную.</p>`
+        : '';
+      card.innerHTML = `
+        <div class="config-card__header">
+          <div>
+            <h3 class="config-card__title">${escapeHtml(titleRaw)}</h3>
+            <p class="config-card__subtitle muted"></p>
+          </div>
+          <button type="button" class="mini-btn" data-act="del-vehicle">Удалить</button>
+        </div>
+        <div class="config-grid">${fieldsHtml}</div>
+        <div class="config-flags">${flagsHtml}</div>
+        ${depotPickers}
+        ${runsWarn}
+        <button type="button" class="mini-btn complex-summary-card__fix-btn" data-act="fix-max-runs-inline">Исправить max_runs автоматически</button>
+      `;
+      card.querySelectorAll('[data-field]').forEach((input) => {
+        const key = input.getAttribute('data-field');
+        if (!key) return;
+        const eventName = input.type === 'checkbox' ? 'change' : 'input';
+        input.addEventListener(eventName, (ev) => {
+          const el = ev.target;
+          let val;
+          if (el.type === 'checkbox') val = el.checked;
+          else if (el.type === 'number') val = el.value === '' ? '' : Number(el.value);
+          else val = el.value;
+          updateComplexVehicleField(vehicle.uid, key, val);
+          syncComplexVehicleCardHeader(vehicle, card, index);
+        });
+      });
+      const pickStart = card.querySelector('[data-act="pick-start-depot"]');
+      if (pickStart) {
+        pickStart.addEventListener('change', () => {
+          updateComplexVehicleField(vehicle.uid, 'starting_depot_id', pickStart.value);
+          refresh();
+        });
+      }
+      const pickMiddle = card.querySelector('[data-act="pick-middle-depot"]');
+      if (pickMiddle) {
+        pickMiddle.addEventListener('change', () => {
+          updateComplexVehicleField(vehicle.uid, 'middle_depot_id', pickMiddle.value);
+          refresh();
+        });
+      }
+      const fixBtn = card.querySelector('[data-act="fix-max-runs-inline"]');
+      if (fixBtn) {
+        fixBtn.addEventListener('click', () => {
+          fixComplexVehicleMaxRuns(vehicle.uid);
+          refresh();
+        });
+      }
+      card.querySelector('[data-act="del-vehicle"]').addEventListener('click', () => {
+        removeComplexVehicle(vehicle.uid);
+        closeComplexVehicleSettingsModal();
+      });
+      syncComplexVehicleCardHeader(vehicle, card, index);
+      container.appendChild(card);
+      return true;
+    }
+
     function renderComplexVehicles() {
       const host = document.getElementById('complexVehiclesHost');
       if (!host) return;
       const s = ensureComplexPlannerState();
       const hintHtml = `
         <p class="complex-vehicle-hint" role="note">
-          <strong>Дозагрузки:</strong> укажите <code>max_runs</code> не меньше числа загрузок (утро / день / вечер / свои окна).
-          Обычно <strong>2</strong> для утро+день, <strong>3</strong> для утро+день+вечер.
-          Поле <code>shifts.0.max_runs</code> в этом режиме не используется.
+          <strong>Дозагрузки:</strong> укажите <code>max_runs</code> не меньше числа загрузок.
         </p>`;
       if (!s.vehicles.length) {
-        host.innerHTML = hintHtml + '<p class="empty-hint">Курьеров пока нет. Добавьте машину для планирования с дозагрузками.</p>';
+        host.innerHTML = hintHtml + '<p class="empty-hint">Курьеров пока нет.</p>';
         const wrap = document.createElement('p');
         wrap.innerHTML = '<button type="button" class="mini-btn" data-act="add-vehicle-inline">+ Добавить курьера/машину</button>';
         host.appendChild(wrap);
@@ -5620,89 +6889,10 @@
       }
       const list = document.createElement('div');
       list.className = 'complex-vehicle-list';
-      s.vehicles.forEach((vehicle, index) => {
-        const card = document.createElement('div');
-        card.className = 'config-card complex-vehicle-card';
-        const titleRaw = (vehicle.ref && String(vehicle.ref).trim())
-          || (vehicle.id && String(vehicle.id).trim())
-          || `Курьер #${index + 1}`;
-        const fieldsHtml = COMPLEX_VEHICLE_FIELD_CONFIG.map((cfg) => makeConfigField(
-          cfg.label,
-          cfg.key,
-          vehicle[cfg.key] ?? '',
-          cfg
-        )).join('');
-        const flagsHtml = COMPLEX_VEHICLE_FLAG_CONFIG.map((cfg) => makeConfigField(
-          cfg.label,
-          cfg.key,
-          vehicle[cfg.key],
-          { type: 'checkbox' }
-        )).join('');
-        const depotPickers = s.depots.length
-          ? `
-          <div class="config-grid" style="margin-top:10px">
-            <div class="config-field">
-              <label>Быстрый выбор стартового склада</label>
-              <select data-act="pick-start-depot">${buildComplexDepotSelectOptions(s.depots, vehicle.starting_depot_id)}</select>
-            </div>
-            <div class="config-field">
-              <label>Быстрый выбор промежуточного склада</label>
-              <select data-act="pick-middle-depot">${buildComplexDepotSelectOptions(s.depots, vehicle.middle_depot_id)}</select>
-            </div>
-          </div>`
-          : '<p class="muted complex-vehicle-card__hint-inline">Добавьте склад выше, чтобы подставлять starting_depot_id / middle_depot_id.</p>';
-        const runsNum = Number(vehicle.max_runs);
-        const runsWarn = Number.isFinite(runsNum) && runsNum < 2
-          ? '<p class="muted complex-vehicle-card__hint-inline" style="color:#f5a962">max_runs меньше 2 — дневные/вечерние дозагрузки могут не сработать.</p>'
-          : '';
-        card.innerHTML = `
-          <div class="config-card__header">
-            <div>
-              <h3 class="config-card__title">${escapeHtml(titleRaw)}</h3>
-              <p class="config-card__subtitle muted"></p>
-            </div>
-            <button type="button" class="mini-btn" data-act="del-vehicle">Удалить</button>
-          </div>
-          <div class="config-grid">${fieldsHtml}</div>
-          <div class="config-flags">${flagsHtml}</div>
-          ${depotPickers}
-          ${runsWarn}
-        `;
-        card.querySelectorAll('[data-field]').forEach((input) => {
-          const key = input.getAttribute('data-field');
-          if (!key) return;
-          const eventName = input.type === 'checkbox' ? 'change' : 'input';
-          input.addEventListener(eventName, (ev) => {
-            const el = ev.target;
-            let val;
-            if (el.type === 'checkbox') val = el.checked;
-            else if (el.type === 'number') val = el.value === '' ? '' : Number(el.value);
-            else val = el.value;
-            updateComplexVehicleField(vehicle.uid, key, val);
-            syncComplexVehicleCardHeader(vehicle, card, index);
-          });
-        });
-        const pickStart = card.querySelector('[data-act="pick-start-depot"]');
-        if (pickStart) {
-          pickStart.addEventListener('change', () => {
-            const id = pickStart.value;
-            updateComplexVehicleField(vehicle.uid, 'starting_depot_id', id);
-            if (id) {
-              updateComplexVehicleField(vehicle.uid, 'starting_depot_id', id);
-            }
-            renderComplexVehicles();
-          });
-        }
-        const pickMiddle = card.querySelector('[data-act="pick-middle-depot"]');
-        if (pickMiddle) {
-          pickMiddle.addEventListener('change', () => {
-            updateComplexVehicleField(vehicle.uid, 'middle_depot_id', pickMiddle.value);
-            renderComplexVehicles();
-          });
-        }
-        card.querySelector('[data-act="del-vehicle"]').addEventListener('click', () => removeComplexVehicle(vehicle.uid));
-        syncComplexVehicleCardHeader(vehicle, card, index);
-        list.appendChild(card);
+      s.vehicles.forEach((vehicle) => {
+        const wrap = document.createElement('div');
+        renderComplexVehicleFormInto(wrap, vehicle.uid);
+        list.appendChild(wrap);
       });
       host.innerHTML = hintHtml;
       host.appendChild(list);
@@ -5782,7 +6972,6 @@
       ensureComplexPlannerState().orders.push(createDefaultComplexOrder(stage));
       scheduleComplexPlannerSave();
       renderComplexOrdersBoard();
-      renderComplexRoutePreview();
       updateComplexPlannerDraftStatus();
     }
 
@@ -5791,9 +6980,11 @@
       if (idx < 0) return;
       if (!window.confirm('Удалить этот заказ из черновика?')) return;
       ensureComplexPlannerState().orders.splice(idx, 1);
+      if (!ensureComplexPlannerState().orders.some((o) => o.loadingStage === 'custom')) {
+        complexCustomSegmentVisible = false;
+      }
       scheduleComplexPlannerSave();
       renderComplexOrdersBoard();
-      renderComplexRoutePreview();
       updateComplexPlannerDraftStatus();
     }
 
@@ -5804,9 +6995,10 @@
       const order = ensureComplexPlannerState().orders[idx];
       order.loadingStage = stage;
       if (stage !== 'custom') order.depot_ready_time = '';
+      if (stage === 'custom') complexCustomSegmentVisible = true;
       scheduleComplexPlannerSave();
       renderComplexOrdersBoard();
-      renderComplexRoutePreview();
+      updateComplexPlannerDraftStatus();
     }
 
     function lockPageScrollForComplexOrderModal() {
@@ -5824,9 +7016,22 @@
     function syncComplexOrderStageFields() {
       const stageEl = document.getElementById('complexOrderStageSelect');
       const readyWrap = document.getElementById('complexOrderReadyTimeWrap');
+      const hintEl = document.getElementById('complexOrderStageHint');
       if (!stageEl || !readyWrap) return;
-      const isCustom = stageEl.value === 'custom';
+      const stage = stageEl.value;
+      const isCustom = stage === 'custom';
       readyWrap.hidden = !isCustom;
+      if (hintEl) {
+        if (stage === 'morning') {
+          hintEl.textContent = 'Утренние заказы доступны с первой загрузки (режим — в настройках экспорта).';
+        } else if (stage === 'day' || stage === 'evening') {
+          hintEl.textContent = 'Время готовности на складе берётся из окна дозагрузки (таймлайн / настройки склада).';
+        } else if (stage === 'custom') {
+          hintEl.textContent = 'Укажите ниже, когда заказ будет готов на складе.';
+        } else {
+          hintEl.textContent = '';
+        }
+      }
     }
 
     function fillComplexOrderDepotSelect(selectedId) {
@@ -5905,8 +7110,9 @@
       };
     }
 
-    function openComplexOrderForm(editUid) {
+    function openComplexOrderForm(editUid, options) {
       hydrateComplexPlannerStateIfNeeded();
+      const opts = options && typeof options === 'object' ? options : {};
       const modal = document.getElementById('complexOrderModal');
       const titleEl = document.getElementById('complexOrderModalTitle');
       if (!modal) return;
@@ -5916,7 +7122,15 @@
         const idx = findComplexOrderIndex(editUid);
         order = idx >= 0 ? ensureComplexPlannerState().orders[idx] : null;
       }
-      if (!order) order = createDefaultComplexOrder('morning');
+      if (!order) {
+        const stage = opts.loadingStage && COMPLEX_LOADING_STAGES.has(opts.loadingStage)
+          ? opts.loadingStage
+          : 'morning';
+        order = createDefaultComplexOrder(stage);
+      } else if (opts.loadingStage && COMPLEX_LOADING_STAGES.has(opts.loadingStage)) {
+        order = { ...order, loadingStage: opts.loadingStage };
+      }
+      if (order.loadingStage === 'custom') complexCustomSegmentVisible = true;
       if (titleEl) {
         titleEl.textContent = editUid ? 'Редактировать заказ' : 'Добавить заказ';
       }
@@ -5950,7 +7164,7 @@
       }
       if (!COMPLEX_LOADING_STAGES.has(raw.loadingStage)) raw.loadingStage = 'morning';
       if (raw.loadingStage === 'custom' && !raw.depot_ready_time) {
-        showError('Для партии «Своё время» укажите depot_ready_time.');
+        showError('Для партии «Своё время» укажите, когда заказ будет готов на складе.');
         return;
       }
       clearError();
@@ -5970,33 +7184,34 @@
         uid: order.uid,
         id: order.id || getNextComplexOrderExportId()
       }));
+      if (order.loadingStage === 'custom') complexCustomSegmentVisible = true;
+      else if (!s.orders.some((o) => o.loadingStage === 'custom')) complexCustomSegmentVisible = false;
       scheduleComplexPlannerSave();
       closeComplexOrderForm();
       renderComplexOrdersBoard();
-      renderComplexRoutePreview();
       updateComplexPlannerDraftStatus();
     }
 
-    function buildComplexOrderCardHtml(order) {
+    function buildComplexOrderCardHtml(order, options) {
+      const opts = options && typeof options === 'object' ? options : {};
+      const stageOptions = opts.stageOptions || COMPLEX_STAGE_COLUMNS;
+      const s = ensureComplexPlannerState();
       const depot = findComplexDepotById(order.depot_id);
-      const ready = resolveComplexDepotReadyTime(order, depot, ensureComplexPlannerState().prefs);
-      const readyLabel = ready ? `готовность: ${ready}` : 'готовность: с первой загрузки';
+      const badge = getComplexOrderAvailabilityBadge(order, depot, s.prefs);
       const title = (order.title && String(order.title).trim()) || 'Без названия';
       const addr = (order.address && String(order.address).trim()) || 'адрес не указан';
       const tw = (order.time_window && String(order.time_window).trim()) || '—';
-      const depotLabel = order.depot_id ? `склад ${order.depot_id}` : 'склад ?';
-      const moveOptions = COMPLEX_STAGE_COLUMNS.map((col) => {
+      const moveOptions = stageOptions.map((col) => {
         const sel = col.key === order.loadingStage ? ' selected' : '';
         return `<option value="${col.key}"${sel}>${escapeHtml(col.short)}</option>`;
       }).join('');
       return `
-        <article class="complex-order-card" data-order-uid="${escapeHtml(order.uid)}">
-          <h4 class="complex-order-card__title">${escapeHtml(title)}</h4>
-          <p class="complex-order-card__meta">
-            ${escapeHtml(addr)}<br />
-            ${escapeHtml(depotLabel)} · ${escapeHtml(readyLabel)}<br />
-            доставка: ${escapeHtml(tw)}
-          </p>
+        <article class="complex-order-card complex-order-card--compact" data-order-uid="${escapeHtml(order.uid)}">
+          <div class="complex-order-card__head">
+            <h4 class="complex-order-card__title">${escapeHtml(title)}</h4>
+            <span class="complex-order-badge complex-order-badge--${escapeHtml(badge.tone)}">${escapeHtml(badge.text)}</span>
+          </div>
+          <p class="complex-order-card__meta">${escapeHtml(addr)} · доставка ${escapeHtml(tw)}</p>
           <div class="complex-order-card__actions">
             <button type="button" class="mini-btn" data-act="edit-order">Изменить</button>
             <button type="button" class="mini-btn" data-act="del-order">Удалить</button>
@@ -6026,18 +7241,8 @@
       const host = document.getElementById('complexOrdersHost');
       if (!host) return;
       const s = ensureComplexPlannerState();
-      const prefsRow = document.createElement('div');
-      prefsRow.className = 'complex-orders-prefs';
-      prefsRow.innerHTML = `
-        <label class="muted" style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <span>Утро: depot_ready_time</span>
-          <select id="complexMorningReadyMode">
-            <option value="empty">пусто (первая загрузка)</option>
-            <option value="loading_start">начало окна первой загрузки</option>
-          </select>
-        </label>
-        <button type="button" class="mini-btn" data-act="add-order-inline">+ Добавить заказ</button>
-      `;
+      const { segments } = buildComplexLoadTimeline(s);
+      const stageOptions = getComplexOrderStageOptionsForUi(segments);
       const board = document.createElement('div');
       board.className = 'complex-orders-board';
       COMPLEX_STAGE_COLUMNS.forEach((col) => {
@@ -6055,7 +7260,7 @@
         } else {
           orders.forEach((order) => {
             const wrap = document.createElement('div');
-            wrap.innerHTML = buildComplexOrderCardHtml(order);
+            wrap.innerHTML = buildComplexOrderCardHtml(order, { stageOptions });
             const card = wrap.firstElementChild;
             bindComplexOrderCard(card);
             list.appendChild(card);
@@ -6064,70 +7269,11 @@
         board.appendChild(column);
       });
       host.innerHTML = '';
-      host.appendChild(prefsRow);
       host.appendChild(board);
-      const modeSelect = document.getElementById('complexMorningReadyMode');
-      if (modeSelect) {
-        modeSelect.value = s.prefs.morningReadyMode || 'empty';
-        if (!modeSelect.dataset.complexBound) {
-          modeSelect.dataset.complexBound = '1';
-          modeSelect.addEventListener('change', () => {
-            s.prefs.morningReadyMode = COMPLEX_MORNING_READY_MODES.has(modeSelect.value)
-              ? modeSelect.value
-              : 'empty';
-            scheduleComplexPlannerSave();
-            renderComplexOrdersBoard();
-            renderComplexRoutePreview();
-          });
-        }
-      }
-      prefsRow.querySelector('[data-act="add-order-inline"]').addEventListener('click', () => openComplexOrderForm());
     }
 
     function renderComplexRoutePreview() {
-      const host = document.getElementById('complexRoutePreviewHost');
-      if (!host) return;
-      const s = ensureComplexPlannerState();
-      const primaryDepot = s.depots[0] || null;
-      const depotLabel = primaryDepot
-        ? ((primaryDepot.ref && String(primaryDepot.ref).trim()) || String(primaryDepot.id).trim() || 'склад')
-        : 'склад ?';
-      const counts = { morning: 0, day: 0, evening: 0, custom: 0 };
-      s.orders.forEach((o) => {
-        if (counts[o.loadingStage] != null) counts[o.loadingStage] += 1;
-      });
-      const steps = [];
-      const pushDepot = () => steps.push({ type: 'depot', text: `Склад «${depotLabel}»` });
-      const pushBatch = (key, label) => {
-        if (counts[key] > 0) steps.push({ type: 'batch', text: `${label}: ${counts[key]} заказ(ов)` });
-      };
-      pushDepot();
-      if (counts.morning > 0) {
-        pushBatch('morning', 'Утренняя партия');
-        pushDepot();
-      }
-      if (counts.day > 0) {
-        pushBatch('day', 'Дневная дозагрузка');
-        pushDepot();
-      }
-      if (counts.evening > 0) {
-        pushBatch('evening', 'Вечерняя дозагрузка');
-        pushDepot();
-      }
-      if (counts.custom > 0) {
-        pushBatch('custom', 'Своё время');
-        pushDepot();
-      }
-      if (!s.orders.length) {
-        host.innerHTML = '<p class="muted">Добавьте заказы по партиям — здесь появится схема: склад → партия → склад → …</p>';
-        return;
-      }
-      const parts = steps.map((step, i) => {
-        const cls = step.type === 'depot' ? 'complex-route-preview__step complex-route-preview__step--depot' : 'complex-route-preview__step';
-        const arrow = i < steps.length - 1 ? '<span class="complex-route-preview__arrow" aria-hidden="true">→</span>' : '';
-        return `<span class="${cls}">${escapeHtml(step.text)}</span>${arrow}`;
-      }).join('');
-      host.innerHTML = `<div class="complex-route-preview" role="list">${parts}</div>`;
+      renderComplexRoutePreviewSummary();
     }
 
     function countComplexLoadingGroups(orders, prefs) {
@@ -6149,64 +7295,108 @@
 
     function validateComplexPlannerExport() {
       const s = ensureComplexPlannerState();
-      const errors = [];
-      const warnings = [];
-      if (!s.orders.length) errors.push('Добавьте хотя бы один заказ.');
-      if (!s.depots.length) errors.push('Добавьте хотя бы один склад.');
-      if (!s.vehicles.length) errors.push('Добавьте хотя бы одного курьера/машину.');
+      const errorItems = [];
+      const warningItems = [];
+      const pushError = (message, meta) => errorItems.push({ message, meta: meta || null });
+      const pushWarn = (message, meta) => warningItems.push({ message, meta: meta || null });
+      const primaryDepot = s.depots[0] || null;
+      const primaryVehicle = s.vehicles[0] || null;
+
+      if (!s.orders.length) {
+        pushError('Добавьте хотя бы один заказ.', { type: 'orders' });
+      }
+      if (!s.depots.length) {
+        pushError('Добавьте хотя бы один склад.', { type: 'depot-add' });
+      }
+      if (!s.vehicles.length) {
+        pushError('Добавьте хотя бы одного курьера/машину.', { type: 'vehicle-add' });
+      }
+
       const depotIds = new Set(s.depots.map((d) => String(d.id).trim()).filter(Boolean));
       s.orders.forEach((order, i) => {
+        const title = order.title || `заказ ${i + 1}`;
+        const orderMeta = { type: 'order', orderUid: order.uid, stageKey: order.loadingStage || 'morning' };
         const lat = toNumOrNull(order['point.lat']);
         const lon = toNumOrNull(order['point.lon']);
         if (lat == null || lon == null) {
-          errors.push(`Заказ ${i + 1} («${order.title || 'без названия'}»): укажите координаты.`);
+          pushError(`Заказ ${i + 1} («${title}»): укажите координаты.`, orderMeta);
         }
         const did = order.depot_id != null ? String(order.depot_id).trim() : '';
         if (did && !depotIds.has(did)) {
-          errors.push(`Заказ «${order.title || did}»: склад ${did} не найден в списке Depot.`);
+          pushError(`Заказ «${title}»: склад ${did} не найден в списке Depot.`, orderMeta);
         }
         const depot = findComplexDepotById(did);
         const ready = resolveComplexDepotReadyTime(order, depot, s.prefs);
         const twStart = parseComplexTimeWindowStart(order.time_window);
         if (ready && twStart && ready > twStart) {
-          warnings.push(`Заказ «${order.title || i + 1}»: depot_ready_time позже начала окна доставки клиенту.`);
+          pushWarn(
+            `Заказ «${title}»: время готовности на складе позже начала окна доставки клиенту.`,
+            orderMeta
+          );
         }
         if (order.loadingStage !== 'morning' && !ready) {
-          warnings.push(`Заказ «${order.title || i + 1}»: для не-утренней партии не задан depot_ready_time.`);
+          pushWarn(
+            `Заказ «${title}»: для этой партии не задано время готовности на складе.`,
+            orderMeta
+          );
         }
       });
+
       s.depots.forEach((depot) => {
+        const depotMeta = { type: 'depot', depotUid: depot.uid };
         const refill = serializeRefillingWindows(depot.refillingWindows);
         if (!refill.ok) {
-          errors.push(`Склад «${depot.ref || depot.id}»: ${refill.error}`);
+          pushError(`Склад «${depot.ref || depot.id}»: ${refill.error}`, depotMeta);
         }
         const hasDay = s.orders.some((o) => o.loadingStage === 'day');
         const hasEve = s.orders.some((o) => o.loadingStage === 'evening');
         if ((hasDay || hasEve) && !(depot.refillingWindows && depot.refillingWindows.length)) {
-          warnings.push(`Склад «${depot.ref || depot.id}»: есть дневные/вечерние заказы, но нет окон дозагрузки.`);
+          pushWarn(
+            `Склад «${depot.ref || depot.id}»: есть дневные/вечерние заказы, но нет окон дозагрузки.`,
+            depotMeta
+          );
         }
       });
+
       const orderDepotIds = new Set(s.orders.map((o) => String(o.depot_id).trim()).filter(Boolean));
       if (orderDepotIds.size > 1) {
         const allAllow = s.vehicles.every((v) => v.allow_different_depots_in_route);
         if (!allAllow) {
-          warnings.push('Заказы с разных складов: включите allow_different_depots_in_route у курьера.');
+          const targetVehicle = s.vehicles.find((v) => !v.allow_different_depots_in_route) || primaryVehicle;
+          pushWarn(
+            'Заказы с разных складов: включите «Разрешить разные склады в маршруте» у курьера.',
+            targetVehicle
+              ? { type: 'vehicle', vehicleUid: targetVehicle.uid }
+              : { type: 'vehicle-add' }
+          );
         }
       }
+
       const multiRefillSlots = getComplexDepotMultiRefillingSlotCount(s.depots);
-      if (multiRefillSlots > 0) {
-        warnings.push(
-          `В Excel будут колонки time_windows_refilling.time_windows.0…${multiRefillSlots - 1}: в UI Яндекса возможны жёлтые предупреждения «неизвестный заголовок», планирование при этом обычно проходит.`
+      if (multiRefillSlots > 0 && primaryDepot) {
+        pushWarn(
+          `В Excel будут колонки time_windows_refilling.time_windows.0…${multiRefillSlots - 1}: в UI Яндекса возможны жёлтые предупреждения «неизвестный заголовок», планирование при этом обычно проходит.`,
+          { type: 'depot', depotUid: primaryDepot.uid }
         );
       }
+
       const loadGroups = countComplexLoadingGroups(s.orders, s.prefs);
       s.vehicles.forEach((v) => {
         const runs = Number(v.max_runs);
         if (!Number.isFinite(runs) || runs < loadGroups) {
-          warnings.push(`Курьер «${v.ref || v.id}»: max_runs (${v.max_runs || '—'}) меньше числа групп загрузки (${loadGroups}).`);
+          pushWarn(
+            `Курьер «${v.ref || v.id}»: max_runs (${v.max_runs || '—'}) меньше числа групп загрузки (${loadGroups}).`,
+            { type: 'vehicle', vehicleUid: v.uid, action: 'fix-max-runs' }
+          );
         }
       });
-      return { errors, warnings };
+
+      return {
+        errors: errorItems.map((item) => item.message),
+        warnings: warningItems.map((item) => item.message),
+        errorItems,
+        warningItems
+      };
     }
 
     function showComplexPlannerErrors(errors) {
@@ -6377,22 +7567,34 @@
       const s = ensureComplexPlannerState();
       const penalize = document.getElementById('complexOptPenalizeLate');
       const loadReady = document.getElementById('complexOptLoadWhenReady');
+      const morningMode = document.getElementById('complexMorningReadyMode');
       if (penalize) penalize.checked = !!s.options.penalize_late_service;
       if (loadReady) loadReady.checked = !!s.options.load_when_ready;
+      if (morningMode) morningMode.value = s.prefs.morningReadyMode || 'empty';
+      const yandexLink = document.getElementById('complexYandexPlanningLink');
+      if (yandexLink && APP.yandexPlanningUrl) yandexLink.href = APP.yandexPlanningUrl;
     }
 
     function syncComplexPlannerOptionsFromUi() {
       const s = ensureComplexPlannerState();
       const penalize = document.getElementById('complexOptPenalizeLate');
       const loadReady = document.getElementById('complexOptLoadWhenReady');
+      const morningMode = document.getElementById('complexMorningReadyMode');
       if (penalize) s.options.penalize_late_service = penalize.checked;
       if (loadReady) s.options.load_when_ready = loadReady.checked;
+      if (morningMode) {
+        s.prefs.morningReadyMode = COMPLEX_MORNING_READY_MODES.has(morningMode.value)
+          ? morningMode.value
+          : 'empty';
+      }
       scheduleComplexPlannerSave();
+      updateComplexPlannerDraftStatus();
     }
 
     function initComplexPlannerOptionsUi() {
       const penalize = document.getElementById('complexOptPenalizeLate');
       const loadReady = document.getElementById('complexOptLoadWhenReady');
+      const morningMode = document.getElementById('complexMorningReadyMode');
       const bind = (el) => {
         if (!el || el.dataset.complexBound) return;
         el.dataset.complexBound = '1';
@@ -6400,6 +7602,7 @@
       };
       bind(penalize);
       bind(loadReady);
+      bind(morningMode);
     }
 
     function initComplexOrderModal() {
@@ -6424,8 +7627,23 @@
       }
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        const m = document.getElementById('complexOrderModal');
-        if (m && !m.hidden) closeComplexOrderForm();
+        const orderModal = document.getElementById('complexOrderModal');
+        if (orderModal && !orderModal.hidden) {
+          closeComplexOrderForm();
+          return;
+        }
+        const exportModal = document.getElementById('complexExportSettingsModal');
+        if (exportModal && !exportModal.hidden) {
+          closeComplexExportSettingsPanel();
+          return;
+        }
+        const depotModal = document.getElementById('complexDepotSettingsModal');
+        if (depotModal && !depotModal.hidden) {
+          closeComplexDepotSettingsModal();
+          return;
+        }
+        const vehicleModal = document.getElementById('complexVehicleSettingsModal');
+        if (vehicleModal && !vehicleModal.hidden) closeComplexVehicleSettingsModal();
       });
     }
 
@@ -6465,42 +7683,86 @@
       const root = document.getElementById('complexPlannerRoot');
       if (!root) return;
       hydrateComplexPlannerStateIfNeeded();
-      updateComplexPlannerDraftStatus();
-      renderComplexDepots();
-      renderComplexVehicles();
+      updateComplexPlannerStatusBar();
+      renderComplexLoadTimeline();
+      renderComplexOrdersByLoad();
+      renderComplexSettingsSummary();
+      renderComplexValidationPanel();
+      renderComplexRoutePreviewSummary();
       renderComplexOrdersBoard();
-      renderComplexRoutePreview();
+    }
+
+    function initComplexOrdersByLoadResponsive() {
+      const mq = window.matchMedia('(max-width: 1023px)');
+      if (mq._complexBound) return;
+      mq._complexBound = true;
+      mq.addEventListener('change', () => {
+        if (complexPlannerScreenOpen) renderComplexOrdersByLoad();
+      });
     }
 
     function initComplexPlannerUi() {
       const openBtn = document.getElementById('openComplexPlanner');
       const closeBtn = document.getElementById('closeComplexPlanner');
-      const addDepotBtn = document.getElementById('complexAddDepot');
       if (openBtn) openBtn.addEventListener('click', openComplexPlanner);
       if (closeBtn) closeBtn.addEventListener('click', closeComplexPlanner);
-      if (addDepotBtn) addDepotBtn.addEventListener('click', () => {
+
+      const menuBtn = document.getElementById('complexPlannerMenuBtn');
+      if (menuBtn) {
+        menuBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const menu = document.getElementById('complexPlannerMenu');
+          setComplexPlannerMenuOpen(menu && menu.hidden);
+        });
+      }
+      const menu = document.getElementById('complexPlannerMenu');
+      if (menu) menu.addEventListener('click', (e) => e.stopPropagation());
+      document.addEventListener('click', () => setComplexPlannerMenuOpen(false));
+
+      const demoBtn = document.getElementById('complexMenuLoadDemo');
+      if (demoBtn) demoBtn.addEventListener('click', () => {
+        setComplexPlannerMenuOpen(false);
         hydrateComplexPlannerStateIfNeeded();
-        addComplexDepot();
+        loadComplexPlannerDemo();
       });
-      const addVehicleBtn = document.getElementById('complexAddVehicle');
-      if (addVehicleBtn) addVehicleBtn.addEventListener('click', () => {
-        hydrateComplexPlannerStateIfNeeded();
-        addComplexVehicle();
+      const resetBtn = document.getElementById('complexMenuReset');
+      if (resetBtn) resetBtn.addEventListener('click', () => {
+        setComplexPlannerMenuOpen(false);
+        if (window.confirm('Сбросить черновик сложного планирования?')) {
+          resetComplexPlannerDraft();
+        }
       });
-      const addOrderBtn = document.getElementById('complexAddOrder');
-      if (addOrderBtn) addOrderBtn.addEventListener('click', () => {
-        hydrateComplexPlannerStateIfNeeded();
-        openComplexOrderForm();
+      const exportSettingsBtn = document.getElementById('complexMenuExportSettings');
+      if (exportSettingsBtn) exportSettingsBtn.addEventListener('click', () => {
+        openComplexExportSettingsPanel();
       });
+
+      const exportSettingsBackdrop = document.getElementById('complexExportSettingsBackdrop');
+      const exportSettingsClose = document.getElementById('complexExportSettingsClose');
+      const exportSettingsDone = document.getElementById('complexExportSettingsDone');
+      if (exportSettingsBackdrop) exportSettingsBackdrop.addEventListener('click', closeComplexExportSettingsPanel);
+      if (exportSettingsClose) exportSettingsClose.addEventListener('click', closeComplexExportSettingsPanel);
+      if (exportSettingsDone) exportSettingsDone.addEventListener('click', closeComplexExportSettingsPanel);
+
+      const depotSettingsBackdrop = document.getElementById('complexDepotSettingsBackdrop');
+      const depotSettingsClose = document.getElementById('complexDepotSettingsClose');
+      const depotSettingsDone = document.getElementById('complexDepotSettingsDone');
+      if (depotSettingsBackdrop) depotSettingsBackdrop.addEventListener('click', closeComplexDepotSettingsModal);
+      if (depotSettingsClose) depotSettingsClose.addEventListener('click', closeComplexDepotSettingsModal);
+      if (depotSettingsDone) depotSettingsDone.addEventListener('click', closeComplexDepotSettingsModal);
+
+      const vehicleSettingsBackdrop = document.getElementById('complexVehicleSettingsBackdrop');
+      const vehicleSettingsClose = document.getElementById('complexVehicleSettingsClose');
+      const vehicleSettingsDone = document.getElementById('complexVehicleSettingsDone');
+      if (vehicleSettingsBackdrop) vehicleSettingsBackdrop.addEventListener('click', closeComplexVehicleSettingsModal);
+      if (vehicleSettingsClose) vehicleSettingsClose.addEventListener('click', closeComplexVehicleSettingsModal);
+      if (vehicleSettingsDone) vehicleSettingsDone.addEventListener('click', closeComplexVehicleSettingsModal);
+
       initComplexOrderModal();
       initComplexPlannerOptionsUi();
       const exportBtn = document.getElementById('complexExportXlsx');
       if (exportBtn) exportBtn.addEventListener('click', exportComplexPlannerXlsx);
-      const demoBtn = document.getElementById('complexLoadDemo');
-      if (demoBtn) demoBtn.addEventListener('click', () => {
-        hydrateComplexPlannerStateIfNeeded();
-        loadComplexPlannerDemo();
-      });
+      initComplexOrdersByLoadResponsive();
     }
 
     // ===== Инициализация =====
@@ -6544,6 +7806,7 @@
       refreshModeUiAfterDataChange();
       initSheetOnboarding();
       initExtraOrderModal();
+      initStorePointEditModal();
       initComplexPlannerUi();
       startSheetCacheUiTimer();
       updateSheetCacheUi();
@@ -6578,6 +7841,7 @@
         gatherComplexPlannerRows,
         exportComplexPlannerXlsx,
         validateComplexPlannerExport,
+        scrollToComplexTarget,
         addComplexDepot,
         removeComplexDepot,
         renderComplexDepots,
@@ -6587,7 +7851,8 @@
         resolveComplexDepotReadyTime,
         openComplexOrderForm,
         renderComplexOrdersBoard,
-        renderComplexRoutePreview,
+        buildComplexRouteBatchSummary,
+        renderComplexRoutePreviewSummary,
         moveComplexOrderToStage,
         loadComplexPlannerDemo,
         buildComplexPlannerDemoPayload
@@ -6685,6 +7950,12 @@
         assert('custom groups count', countComplexLoadingGroups(complexPlannerState.orders, complexPlannerState.prefs) === 2);
         const vWarn = validateComplexPlannerExport();
         assert('max_runs warning for 2 custom groups', vWarn.warnings.some((w) => /max_runs/i.test(w)));
+
+        complexPlannerState = normalizeComplexPlannerState(buildComplexPlannerDemoPayload());
+        assert(
+          'route batch summary demo',
+          buildComplexRouteBatchSummary(complexPlannerState).includes('Утро') && buildComplexRouteBatchSummary(complexPlannerState).includes('→')
+        );
       } finally {
         complexPlannerState = savedPlanner;
         complexPlannerStateHydrated = savedHydrated;
@@ -6780,6 +8051,90 @@
         assert('highlight handles special chars safely', ok === true);
         const res = highlight('Тест .+? скобки ( ) и [квадратные] и \\ бэкслэш', '[квадратные]');
         assert('highlight actually marks text', /<mark>\[квадратные\]<\/mark>/.test(res));
+
+        state.activeMode = 'gallery';
+        const savedActiveDay = state.activeDay;
+        state.activeDay = 'monday';
+        const testStore = getStoreForMode('gallery');
+        testStore.scheduleData.monday = [{
+          title: 'Тестовый клиент',
+          address: 'ул. Ленина, 1',
+          lat: 55.75,
+          lng: 37.61,
+          phone: '+79001234567',
+          depot_name: 'Склад А',
+          depot_id: '1',
+          time_window: '09:00-15:00',
+          delivery_seconds: 600
+        }];
+        const scheduleUid = scheduleOrderUid('monday', testStore.scheduleData.monday[0], 0);
+        const scheduleCtx = { uid: scheduleUid, day: 'monday', isExtra: false, sourceMode: 'gallery' };
+        const scheduleResolved = resolveStorePointRecord(scheduleCtx);
+        assert('resolveStorePointRecord finds schedule order', scheduleResolved.record && scheduleResolved.record.title === 'Тестовый клиент');
+        if (scheduleResolved.record) {
+          Object.assign(scheduleResolved.record, {
+            time_window: '10:00-18:00',
+            phone: '+79007654321',
+            delivery_seconds: 900
+          });
+        }
+        const updatedUid = scheduleOrderUid('monday', testStore.scheduleData.monday[0], 0);
+        assert('schedule patch updates phone in record', testStore.scheduleData.monday[0].phone === '+79007654321');
+        assert('schedule uid changes when phone changes', updatedUid !== scheduleUid);
+        state.selected.add(scheduleUid);
+        reconcileSelectionForActiveDay();
+        assert('reconcileSelection keeps selection after field edit', state.selected.has(updatedUid));
+
+        testStore.extraOrders = createEmptyExtraOrders();
+        testStore.extraOrders.monday = [{
+          id: 'extra-test-1',
+          title: 'Разовая',
+          address: 'адрес',
+          lat: 55.1,
+          lng: 37.1,
+          phone: '',
+          time_window: '11:00-20:00',
+          delivery_seconds: 300
+        }];
+        const extraCtx = { uid: extraOrderUid('monday', 'extra-test-1'), day: 'monday', isExtra: true, extraId: 'extra-test-1', sourceMode: 'gallery' };
+        const extraResolved = resolveStorePointRecord(extraCtx);
+        assert('resolveStorePointRecord finds extra order', extraResolved.record && extraResolved.record.id === 'extra-test-1');
+        assert('isRoughlyValidTimeWindow accepts HH:MM-HH:MM', isRoughlyValidTimeWindow('09:00-15:00'));
+        assert('isRoughlyValidTimeWindow rejects garbage', !isRoughlyValidTimeWindow('abc'));
+
+        const deleteTestId = 'extra-delete-test';
+        testStore.extraOrders.monday = [{
+          id: deleteTestId,
+          title: 'Удалить меня',
+          address: 'адрес',
+          lat: 55.2,
+          lng: 37.2,
+          phone: '',
+          time_window: '11:00-20:00',
+          delivery_seconds: 300
+        }];
+        saveLocalForMode('gallery');
+        state.activeMode = ALL_MODE;
+        removeExtraOrder('monday', deleteTestId, 'gallery');
+        let storedExtras = null;
+        try {
+          storedExtras = JSON.parse(localStorage.getItem('extraOrders_gallery') || '{}');
+        } catch (_) {}
+        assert(
+          'removeExtraOrder persists delete when active mode is ALL',
+          !((storedExtras && storedExtras.monday) || []).some((item) => item && item.id === deleteTestId)
+        );
+        loadExtraOrdersOnly('gallery');
+        assert(
+          'deleted extra does not reload from localStorage',
+          !(testStore.extraOrders.monday || []).some((item) => item && item.id === deleteTestId)
+        );
+
+        testStore.scheduleData.monday = [];
+        testStore.extraOrders = createEmptyExtraOrders();
+        state.selected.delete(updatedUid);
+        state.activeDay = savedActiveDay;
+        state.activeMode = savedMode;
 
         runComplexPlannerSelfTests(assert);
       } finally {
