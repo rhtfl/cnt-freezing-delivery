@@ -1225,8 +1225,8 @@
           { key: 'time_window', label: 'Временное окно *', width: 16, description: 'Интервал обслуживания в формате HH:MM-HH:MM.', getValue: (row) => row.time_window || getDefaultTimeWindow() },
           { key: 'comments', label: 'Комментарии к заказу', width: 24, description: 'Дополнительные заметки для водителя.', getValue: (row) => row.comments || '' },
           { key: 'hard_window', label: 'Признак жесткого окна', width: 20, description: 'TRUE, если временное окно нельзя нарушать.', getValue: (row) => row.hard_window !== false },
-          { key: 'shared_service_duration_s', label: 'Время обслуживания *', width: 18, description: 'Длительность обслуживания (сек).', getValue: (row) => pickValue(row, 'shared_service_duration_s', 'service_duration_s') || '' },
-          { key: 'service_duration_s', label: '', width: 3, description: 'Дублирующий столбец для совместимости с шаблоном.', getValue: (row) => pickValue(row, 'service_duration_s', 'shared_service_duration_s') || '' },
+          { key: 'shared_service_duration_s', label: 'Время обслуживания *', width: 18, description: 'Длительность обслуживания (сек).', getValue: (row) => pickValue(row, 'shared_service_duration_s') || '' },
+          { key: 'service_duration_s', label: '', width: 3, description: 'Столбец шаблона; для заказов всегда 0.', getValue: () => 0 },
           { key: 'shipment_size.weight_kg', label: 'Вес (брутто), кг', width: 14, description: 'Вес заказа, если требуется.', getValue: (row) => row.weight ?? '' },
           { key: 'shipment_size.units', label: 'Кол-во мест', width: 16, description: 'Количество мест, паллет или коробов.', getValue: (row) => row.units ?? '' },
           { key: 'shipment_size.volume_cbm', label: 'Объем, м³', width: 12, description: 'Объем поставки в кубометрах.', getValue: (row) => row.volume ?? '' },
@@ -1375,8 +1375,8 @@
           { key: 'time_window', label: 'Временное окно *', width: 16, getValue: (r) => r.time_window || '' },
           { key: 'hard_window', label: 'Признак жесткого окна', width: 20, getValue: (r) => excelBool(r.hard_window) },
           { key: 'comments', label: 'Комментарии к заказу', width: 24, getValue: (r) => r.comments || '' },
-          { key: 'shared_service_duration_s', label: 'Время обслуживания *', width: 18, getValue: (r) => pickValue(r, 'shared_service_duration_s', 'service_duration_s') || '' },
-          { key: 'service_duration_s', label: '', width: 3, getValue: (r) => pickValue(r, 'service_duration_s', 'shared_service_duration_s') || '' },
+          { key: 'shared_service_duration_s', label: 'Время обслуживания *', width: 18, getValue: (r) => pickValue(r, 'shared_service_duration_s') || '' },
+          { key: 'service_duration_s', label: '', width: 3, getValue: () => 0 },
           { key: 'shipment_size.weight_kg', label: 'Вес (брутто), кг', width: 14, getValue: (r) => r['shipment_size.weight_kg'] ?? '' },
           { key: 'shipment_size.units', label: 'Кол-во мест', width: 16, getValue: (r) => r['shipment_size.units'] ?? '' },
           { key: 'shipment_size.volume_cbm', label: 'Объем, м³', width: 12, getValue: (r) => r['shipment_size.volume_cbm'] ?? '' },
@@ -3218,9 +3218,14 @@
 
     function renderStorePointEditForm(record) {
       const minutes = Number.isFinite(record.delivery_seconds) ? Math.round(record.delivery_seconds / 60) : '';
+      const lat = record.lat;
+      const lng = record.lng;
       const values = {
         time_window: record.time_window || getDefaultTimeWindow(),
         delivery_minutes: minutes === '' ? '' : String(minutes),
+        coords_paste: lat != null && lng != null ? `${lat}, ${lng}` : '',
+        lat: lat != null ? String(lat) : '',
+        lng: lng != null ? String(lng) : '',
         depot_id: record.depot_id || '',
         depot_name: record.depot_name || '',
         address: record.address || '',
@@ -3233,6 +3238,14 @@
             ${makeExtraOrderFieldHtml('time_window', values, blockIndex)}
             ${makeExtraOrderFieldHtml('delivery_minutes', values, blockIndex)}
           </div>
+          <div class="eo-point-row eo-point-row--2">
+            ${makeExtraOrderFieldHtml('coords_paste', values, blockIndex)}
+            <div class="eo-coords-pair">
+              ${makeExtraOrderFieldHtml('lat', values, blockIndex)}
+              ${makeExtraOrderFieldHtml('lng', values, blockIndex)}
+            </div>
+          </div>
+          <p class="eo-coords-hint" data-coords-hint hidden>Формат: 55.706284, 37.781800 или через пробел</p>
           <div class="eo-point-row eo-point-row--2">
             ${makeExtraOrderDepotFieldHtml(values, blockIndex)}
             ${makeExtraOrderFieldHtml('depot_name', values, blockIndex)}
@@ -3248,6 +3261,9 @@
       if (!dom.storePointEditForm) return;
       dom.storePointEditForm.querySelectorAll('.eo-field--error').forEach((el) => {
         el.classList.remove('eo-field--error');
+      });
+      dom.storePointEditForm.querySelectorAll('[data-coords-hint]').forEach((el) => {
+        el.hidden = true;
       });
     }
 
@@ -3339,6 +3355,17 @@
           deliverySeconds = minutes * 60;
         }
       }
+      const lat = toNumOrNull(raw.lat);
+      const lon = toNumOrNull(raw.lng);
+      if (lat == null || lon == null) {
+        errors.push('Укажите корректные координаты (широта и долгота).');
+        markStorePointEditFieldError('lat');
+        markStorePointEditFieldError('lng');
+      } else if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+        errors.push('Координаты выходят за допустимый диапазон.');
+        markStorePointEditFieldError('lat');
+        markStorePointEditFieldError('lng');
+      }
       if (errors.length) {
         showError(errors.join(' '));
         if (submitBtn) submitBtn.disabled = false;
@@ -3347,6 +3374,8 @@
       Object.assign(resolved.record, {
         time_window: timeWindow,
         delivery_seconds: deliverySeconds,
+        lat,
+        lng: lon,
         depot_id: raw.depot_id || '',
         depot_name: raw.depot_name || '',
         address: raw.address || '',
@@ -3394,14 +3423,46 @@
             phoneInput.closest('.eo-field')?.classList.remove('eo-field--error');
             return;
           }
+          const coordsInput = event.target.closest('input[data-field="coords_paste"]');
+          if (coordsInput) {
+            handleExtraOrderCoordsInput(dom.storePointEditForm, coordsInput.value);
+            return;
+          }
           const depotInput = event.target.closest('input[data-field="depot_id"]');
           if (depotInput) {
             const currentId = depotInput.value.trim();
             dom.storePointEditForm.querySelectorAll('[data-act="pick-depot"]').forEach((chip) => {
               chip.classList.toggle('eo-depot-chip--active', chip.dataset.depotId === currentId);
             });
+            return;
           }
+          const input = event.target.closest('.eo-input[data-field]');
+          if (input) input.closest('.eo-field')?.classList.remove('eo-field--error');
         });
+        dom.storePointEditForm.addEventListener('paste', (event) => {
+          const phoneInput = event.target.closest('input[data-field="phone"]');
+          if (phoneInput) {
+            event.preventDefault();
+            const pasted = event.clipboardData && event.clipboardData.getData('text');
+            phoneInput.value = formatRuPhoneMaskFromDigits(extractRuPhoneDigits(pasted));
+            phoneInput.setSelectionRange(phoneInput.value.length, phoneInput.value.length);
+            return;
+          }
+          const input = event.target.closest('input[data-field]');
+          if (!input) return;
+          const field = input.getAttribute('data-field');
+          if (field !== 'coords_paste' && field !== 'lat' && field !== 'lng') return;
+          const text = event.clipboardData && event.clipboardData.getData('text');
+          if (!text || !parseLatLngPair(text)) return;
+          event.preventDefault();
+          tryApplyCoordsTextToBlock(dom.storePointEditForm, text);
+          handleExtraOrderCoordsInput(dom.storePointEditForm, text);
+        });
+        dom.storePointEditForm.addEventListener('blur', (event) => {
+          const input = event.target.closest('input[data-field="coords_paste"]');
+          if (!input) return;
+          handleExtraOrderCoordsInput(dom.storePointEditForm, input.value);
+        }, true);
         dom.storePointEditForm.addEventListener('focusin', (event) => {
           const phoneInput = event.target.closest('input[data-field="phone"]');
           if (phoneInput) handleExtraOrderPhoneFocus(phoneInput);
@@ -3924,7 +3985,7 @@
         comments: entry.comments || '',
         hard_window: true,
         shared_service_duration_s: '',
-        service_duration_s: '',
+        service_duration_s: 0,
         depot_id: entry.depot_id || '',
         type: entry.type || ''
       });
@@ -3945,7 +4006,7 @@
         comments: record.comments || '',
         hard_window: true,
         shared_service_duration_s: seconds,
-        service_duration_s: seconds,
+        service_duration_s: 0,
         depot_id: record.depot_id || '',
         type: record.type || ''
       });
@@ -7426,8 +7487,8 @@
           time_window: formatComplexTimeRangeForExcel(order.time_window || getComplexPlannerConfig().defaultTimeWindow),
           hard_window: order.hard_window,
           comments: order.comments || '',
-          shared_service_duration_s: order.shared_service_duration_s ?? '',
-          service_duration_s: order.service_duration_s ?? order.shared_service_duration_s ?? '',
+          shared_service_duration_s: order.shared_service_duration_s ?? order.service_duration_s ?? '',
+          service_duration_s: 0,
           'shipment_size.weight_kg': order.weight ?? '',
           'shipment_size.units': order.units ?? '',
           'shipment_size.volume_cbm': order.volume ?? '',
